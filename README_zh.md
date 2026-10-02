@@ -305,7 +305,7 @@ ChatResponse response = await client.GetResponseAsync(messages, options);
 9. **Prompt 快取** —— 以 `CachedContext` 使用服務端快取，用量統計會算出快取省下的費用。
 10. **Embedding SDK** —— 標準 `IEmbeddingGenerator`，後端可選 Gemini、OpenAI、Ollama 或 OpenAI 相容端點。
 11. **原生 Tool Calling** —— 所有供應商都支援 MEAI 的 `AIFunction`，工具在主執行緒執行。
-12. **第三方整合** —— 讓 RimTalk、Auto Translation、Mod Compatibility Checker 改走 RimLLM。
+12. **第三方整合** —— 讓 RimTalk、Auto Translation、Mod Compatibility Checker、簡中自動化：One 改走 RimLLM。
 
 各項的詳細行為與設計理由：**[Documentation/FEATURES_zh.md](Documentation/FEATURES_zh.md)**。
 

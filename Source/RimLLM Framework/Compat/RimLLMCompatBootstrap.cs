@@ -34,6 +34,11 @@ namespace RimLLM_Framework.Compat
                 h => AutoTranslationCompatPatch.Apply(h),
                 enabled => AutoTranslationCompatPatch.OnTakeoverToggled(enabled)),
             new DelegateCompatTarget(
+                ScAutoCompatTarget.PackageId,
+                "One 簡中自動化 (Simplified Chinese Automation: One)",
+                h => ScAutoCompatPatch.Apply(h),
+                enabled => ScAutoCompatPatch.OnTakeoverToggled(enabled)),
+            new DelegateCompatTarget(
                 ModCompatCheckerCompatTarget.PackageId,
                 "Mod 兼容性檢查器 (Mod Compatibility Checker)",
                 h => ModCompatCheckerCompatPatch.Apply(h))

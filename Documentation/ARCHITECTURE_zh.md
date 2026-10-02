@@ -99,6 +99,6 @@ dotnet build "Source/RimLLM Framework.InGameTests/RimLLM Framework.InGameTests.c
 ```
 
 接著把 `Source/RimLLM Framework.InGameTests/Mod` 連結到 `Mods/`（例如目錄 junction），在遊戲中同時啟用它、它的相依與 RimLLM Framework
-（要涵蓋相容層攔截，再加上 `cj.rimtalk`、`seohyeon.autotranslation`、`modcompatchecker.main`）。RimTest Redux 的 **Run at startup**
+（要涵蓋相容層攔截，再加上 `cj.rimtalk`、`seohyeon.autotranslation`、`modcompatchecker.main`、`ow1r.scauto`）。RimTest Redux 的 **Run at startup**
 （預設開啟）會在載入完成後執行一次；結果寫在 `Player.log` 的 `TESTING START` 與 `TESTING END` 之間，
 `[RimLLM.InGameTests] skipped:` 行則是前置條件缺席而跳過的數量。

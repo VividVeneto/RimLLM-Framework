@@ -320,13 +320,13 @@ namespace RimLLM_Framework.Tests
         /// 鎖住靜態方法簽章：Debug 動作選單（<c>DebugTabMenu_Actions.InitActions</c>）會對所有型別的
         /// <c>Static | Public | NonPublic</c> 方法做 <c>IsDefined</c>（實例方法不在掃描範圍），Mono 因此會解析參數與回傳型別；簽章含任一相容目標 Mod 的型別時，該 Mod 缺席
         /// 玩家一開 Debug 選單就會拋 TypeLoadException。目標 Mod 型別只能出現在方法本體。
-        /// 涵蓋全部相容目標（AutoTranslation、ModCompatChecker、RimTalk）。
+        /// 涵蓋全部相容目標（AutoTranslation、ModCompatChecker、RimTalk、RimTranslation）。
         /// </summary>
         [Test]
         public void FrameworkAssembly_HasNoCompatTargetTypesInMethodSignatures()
         {
             const BindingFlags all = BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly;
-            var targetAssemblies = new HashSet<string> { "AutoTranslation", "ModCompatChecker", "RimTalk" };
+            var targetAssemblies = new HashSet<string> { "AutoTranslation", "ModCompatChecker", "RimTalk", "RimTranslation" };
             var offenders = new List<string>();
             foreach (Type type in typeof(AutoTranslationCompatPatch).Assembly.GetTypes())
             {

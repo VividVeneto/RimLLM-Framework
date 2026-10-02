@@ -13,7 +13,7 @@ namespace RimLLM_Framework.InGameTests
     /// 相容層的 Harmony 攔截是否真的掛在玩家實際安裝的目標 Mod 上。
     /// headless 測試只能對編譯期參考（Source/Libs）驗證簽章，看不到版本漂移或掛載失敗。
     /// 目標 Mod 未啟用時記錄 skipped；要涵蓋全部目標，需以 cj.rimtalk、seohyeon.autotranslation、
-    /// modcompatchecker.main 為伴隨 Mod 再跑一次。
+    /// modcompatchecker.main、ow1r.scauto 為伴隨 Mod 再跑一次。
     /// </summary>
     [TestSuite]
     internal static class CompatPatchTests
@@ -41,6 +41,10 @@ namespace RimLLM_Framework.InGameTests
             new ExpectedPatch { ModId = ModCompatCheckerCompatTarget.PackageId, TypeName = "AIService", MethodName = "CallAPIWithTimeout", Kind = PatchKind.Prefix },
             new ExpectedPatch { ModId = ModCompatCheckerCompatTarget.PackageId, TypeName = "ModCompatSettings", MethodName = "IsAIConfigured", Kind = PatchKind.Postfix, Optional = true },
             new ExpectedPatch { ModId = ModCompatCheckerCompatTarget.PackageId, TypeName = "ApiBalanceChecker", MethodName = "CheckBalance", Kind = PatchKind.Prefix, Optional = true },
+            new ExpectedPatch { ModId = ScAutoCompatTarget.PackageId, TypeName = "ResponsesClient", MethodName = "PostOnceCoreAsync", Kind = PatchKind.Prefix },
+            new ExpectedPatch { ModId = ScAutoCompatTarget.PackageId, TypeName = "ApiConfigurationStore", MethodName = "IsLocalBaseUrl", Kind = PatchKind.Postfix, Optional = true },
+            new ExpectedPatch { ModId = ScAutoCompatTarget.PackageId, TypeName = "ApiConnectionProbe", MethodName = "FetchModelsAsync", Kind = PatchKind.Prefix, Optional = true },
+            new ExpectedPatch { ModId = ScAutoCompatTarget.PackageId, TypeName = "ThinkingParameterProbeService", MethodName = "RunAsync", Kind = PatchKind.Prefix, Optional = true },
         };
 
         [Test]

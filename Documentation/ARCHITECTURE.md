@@ -100,6 +100,6 @@ dotnet build "Source/RimLLM Framework.InGameTests/RimLLM Framework.InGameTests.c
 ```
 
 Then link `Source/RimLLM Framework.InGameTests/Mod` into `Mods/` (e.g. a directory junction) and launch the game with it enabled together with its dependencies and RimLLM Framework
-(add `cj.rimtalk`, `seohyeon.autotranslation` and `modcompatchecker.main` to cover the compat hooks). RimTest Redux's **Run at startup**
+(add `cj.rimtalk`, `seohyeon.autotranslation`, `modcompatchecker.main` and `ow1r.scauto` to cover the compat hooks). RimTest Redux's **Run at startup**
 (on by default) runs the suites once loading finishes; results go to `Player.log` between `TESTING START` and `TESTING END`,
 and `[RimLLM.InGameTests] skipped:` lines count the preconditions that were absent.

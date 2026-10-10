@@ -237,4 +237,16 @@
   <RimLLM_CompatBadgeInstalled>已安装</RimLLM_CompatBadgeInstalled>
   <RimLLM_CompatBadgeActive>接管中</RimLLM_CompatBadgeActive>
   <RimLLM_CompatBadgePatchFailed>挂载失败</RimLLM_CompatBadgePatchFailed>
+  <!-- 使用中的模组 -->
+  <RimLLM_TabConsumers>使用中的模组</RimLLM_TabConsumers>
+  <RimLLM_TitleConsumers>使用 RimLLM 的模组</RimLLM_TitleConsumers>
+  <RimLLM_ConsumersIntro>列出已启用且声明依赖 RimLLM Framework 的模组，以及本次游戏曾通过 RimLLM 发送请求的模组（含在第三方整合分页被接管的模组）。</RimLLM_ConsumersIntro>
+  <RimLLM_ConsumersEmpty>目前没有模组使用 RimLLM Framework。</RimLLM_ConsumersEmpty>
+  <RimLLM_ConsumersBadgeCalled>已调用</RimLLM_ConsumersBadgeCalled>
+  <RimLLM_ConsumersBadgeIdle>尚未调用</RimLLM_ConsumersBadgeIdle>
+  <RimLLM_ConsumersDeclared>已在 About.xml 声明依赖 RimLLM Framework</RimLLM_ConsumersDeclared>
+  <RimLLM_ConsumersNotDeclared>未声明依赖（例如由第三方整合分页接管）</RimLLM_ConsumersNotDeclared>
+  <RimLLM_ConsumersCalled>本次游戏已通过 RimLLM 发送请求（modId：{0}）</RimLLM_ConsumersCalled>
+  <RimLLM_ConsumersNotCalled>本次游戏尚未通过 RimLLM 发送请求</RimLLM_ConsumersNotCalled>
+  <RimLLM_ConsumersUnresolved>此 modId 对不上任何已启用模组的 packageId</RimLLM_ConsumersUnresolved>
 </LanguageData>

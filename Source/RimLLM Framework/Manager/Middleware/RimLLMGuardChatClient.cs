@@ -61,6 +61,8 @@ namespace RimLLM_Framework.Manager
 
         private void Guard(IEnumerable<ChatMessage> messages)
         {
+            _usageTracker.RecordCaller(_modId);
+
             if (_settings.EnableAntiAbuse)
             {
                 _throttleStore.CheckAntiAbuse(_modId, countTowardWindow: !IsToolLoopContinuation(messages));

@@ -306,6 +306,7 @@ ChatResponse response = await client.GetResponseAsync(messages, options);
 10. **Embedding SDK** —— 標準 `IEmbeddingGenerator`，後端可選 Gemini、OpenAI、Ollama 或 OpenAI 相容端點。
 11. **原生 Tool Calling** —— 所有供應商都支援 MEAI 的 `AIFunction`，工具在主執行緒執行。
 12. **第三方整合** —— 讓 RimTalk、Auto Translation、Mod Compatibility Checker、簡中自動化：One 改走 RimLLM。
+13. **使用中的模組** —— 設定分頁列出宣告依賴或本次遊戲呼叫過 RimLLM 的模組。
 
 各項的詳細行為與設計理由：**[Documentation/FEATURES_zh.md](Documentation/FEATURES_zh.md)**。
 

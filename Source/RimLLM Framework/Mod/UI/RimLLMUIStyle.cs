@@ -293,6 +293,53 @@ namespace RimLLM_Framework.Mod
             return result;
         }
 
+        /// <summary>狀態列（第三方整合、使用中的模組分頁）的列高與列距。</summary>
+        public const float StatusRowHeight = 34f;
+        public const float StatusRowGap = 4f;
+        private const float StatusRowPadding = 10f;
+        private const float StatusDotSize = 8f;
+        private const float StatusBadgeWidth = 120f;
+
+        /// <summary>狀態列色點：生效／已呼叫。</summary>
+        public static readonly Color StatusGreen = new Color32(0x4a, 0xde, 0x80, 0xff);
+
+        /// <summary>狀態列色點：可用但未生效／尚未呼叫。</summary>
+        public static readonly Color StatusBlue = new Color32(0x60, 0xa5, 0xfa, 0xff);
+
+        /// <summary>
+        /// 緊湊狀態列：底色、色點、標題與右側狀態標籤，兩個分頁共用同一套版面以免各自漂移。
+        /// <paramref name="tint"/> 套用在色點、標題與標籤上（例如未安裝時淡化），底色不受影響；結束時 GUI.color 還原為白色。
+        /// <paramref name="rightInset"/> 為標籤右側預留給額外控制項（如勾選框）的寬度。
+        /// 回傳滑鼠是否停在列上，提示由呼叫端掛，才能只在懸停時組字串。
+        /// </summary>
+        public static bool DrawStatusRow(Rect rowRect, Color statusColor, string title, string badge, Color tint, float rightInset = 0f)
+        {
+            Widgets.DrawBoxSolid(rowRect, ChipFill);
+            bool hovered = Mouse.IsOver(rowRect);
+            if (hovered) Widgets.DrawHighlight(rowRect);
+
+            Rect badgeRect = new Rect(rowRect.xMax - StatusRowPadding - rightInset - StatusBadgeWidth, rowRect.y, StatusBadgeWidth, rowRect.height);
+            Rect dotRect = new Rect(
+                rowRect.x + StatusRowPadding,
+                rowRect.y + (rowRect.height - StatusDotSize) / 2f,
+                StatusDotSize, StatusDotSize);
+            Rect titleRect = new Rect(dotRect.xMax + 8f, rowRect.y, badgeRect.x - dotRect.xMax - 16f, rowRect.height);
+
+            GUI.color = tint;
+            Widgets.DrawBoxSolid(dotRect, statusColor * tint);
+            using (With(TextAnchor.MiddleLeft, GameFont.Small, wordWrap: false))
+            {
+                Widgets.Label(titleRect, title);
+            }
+            using (With(TextAnchor.MiddleRight, GameFont.Tiny, wordWrap: false))
+            {
+                GUI.color = statusColor * tint;
+                Widgets.Label(badgeRect, badge);
+            }
+            GUI.color = Color.white;
+            return hovered;
+        }
+
         /// <summary>
         /// 比例條：底色 + 依比例填滿 + 外框 + 置中百分比標籤。
         /// </summary>

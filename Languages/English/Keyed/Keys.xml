@@ -237,4 +237,16 @@
   <RimLLM_CompatBadgeInstalled>Installed</RimLLM_CompatBadgeInstalled>
   <RimLLM_CompatBadgeActive>Active</RimLLM_CompatBadgeActive>
   <RimLLM_CompatBadgePatchFailed>Hook failed</RimLLM_CompatBadgePatchFailed>
+  <!-- Mods Using RimLLM -->
+  <RimLLM_TabConsumers>Mods Using RimLLM</RimLLM_TabConsumers>
+  <RimLLM_TitleConsumers>Mods Using RimLLM</RimLLM_TitleConsumers>
+  <RimLLM_ConsumersIntro>Active mods that declare RimLLM Framework as a dependency, plus every mod that has sent a request through RimLLM this session (including mods taken over in the Integrations tab).</RimLLM_ConsumersIntro>
+  <RimLLM_ConsumersEmpty>No mod is using RimLLM Framework right now.</RimLLM_ConsumersEmpty>
+  <RimLLM_ConsumersBadgeCalled>Called</RimLLM_ConsumersBadgeCalled>
+  <RimLLM_ConsumersBadgeIdle>Not called yet</RimLLM_ConsumersBadgeIdle>
+  <RimLLM_ConsumersDeclared>Declares RimLLM Framework as a dependency in About.xml</RimLLM_ConsumersDeclared>
+  <RimLLM_ConsumersNotDeclared>Does not declare a dependency (e.g. taken over in the Integrations tab)</RimLLM_ConsumersNotDeclared>
+  <RimLLM_ConsumersCalled>Sent requests through RimLLM this session (modId: {0})</RimLLM_ConsumersCalled>
+  <RimLLM_ConsumersNotCalled>Has not sent any request through RimLLM this session</RimLLM_ConsumersNotCalled>
+  <RimLLM_ConsumersUnresolved>This modId does not match any active mod's packageId</RimLLM_ConsumersUnresolved>
 </LanguageData>

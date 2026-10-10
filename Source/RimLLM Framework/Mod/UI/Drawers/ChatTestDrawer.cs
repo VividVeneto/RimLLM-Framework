@@ -415,7 +415,7 @@ namespace RimLLM_Framework.Mod
                     {
                         try
                         {
-                            var client = RimLLMProvider.CreateChatClient("RimLLM.DebugChat");
+                            var client = RimLLMProvider.CreateChatClient(ServiceConsumerList.DebugChatModId);
                             var messages = new List<ChatMessage> { new ChatMessage(ChatRole.User, userPrompt) };
                             var options = new RimLLMChatOptions
                             {

@@ -31,6 +31,7 @@ namespace RimLLM_Framework
         {
             if (values == null) throw new ArgumentNullException(nameof(values));
 
+            _manager.UsageTracker.RecordCaller(_modId);
             _manager.CheckAntiAbuseForMod(_modId);
             IReadOnlyList<RimLLMEmbeddingResult> results = await _manager.EmbeddingService
                 .ComputeEmbeddingsAsync(values, cancellationToken)

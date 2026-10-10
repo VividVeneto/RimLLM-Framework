@@ -232,6 +232,32 @@ namespace RimLLM_Framework.Manager
         public readonly ConcurrentDictionary<string, ProviderStats> ProviderStatistics = 
             new ConcurrentDictionary<string, ProviderStats>(StringComparer.OrdinalIgnoreCase);
 
+        /// <summary>
+        /// 呼叫端 modId 的收錄上限。modId 由呼叫端自取、可任意輪換，
+        /// 超過上限就不再收錄，避免整場遊戲無限成長、設定頁列出成千上萬列。
+        /// </summary>
+        public const int MaxCallerModIds = 64;
+
+        /// <summary>本次遊戲實際送出過請求的 modId（值不使用，僅當集合）。</summary>
+        private readonly ConcurrentDictionary<string, byte> _callerModIds =
+            new ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>收錄的 modId 數量；設定頁每幀用它判斷是否需要重組，不必複製整個集合。</summary>
+        public int CallerModIdCount => _callerModIds.Count;
+
+        /// <summary>收錄的 modId 快照，供設定頁「使用中的模組」。modId 為呼叫端自取的字串，不保證等於 packageId。</summary>
+        public IReadOnlyCollection<string> CallerModIds => new List<string>(_callerModIds.Keys);
+
+        /// <summary>
+        /// 記錄一次請求的呼叫端。在請求進入守衛時呼叫，而不是在建立 client 時：
+        /// 許多 Mod 一啟動就先取 client，但從未真的送出請求。
+        /// </summary>
+        public void RecordCaller(string modId)
+        {
+            if (string.IsNullOrEmpty(modId) || _callerModIds.Count >= MaxCallerModIds) return;
+            _callerModIds.TryAdd(modId, 0);
+        }
+
         public RimLLMUsageTracker(IRimLLMSettings settings)
         {
             _settings = settings ?? throw new ArgumentNullException(nameof(settings));

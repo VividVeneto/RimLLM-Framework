@@ -16,15 +16,11 @@ namespace RimLLM_Framework.Mod
     {
         private static RimLLMFrameworkSettings Settings => RimLLMFrameworkMod.Settings;
 
-        private const float RowHeight = 34f;
-        private const float RowGap = 4f;
         private const float RowPadding = 10f;
-        private const float DotSize = 8f;
-        private const float BadgeWidth = 120f;
         private const float CheckboxSize = 24f;
 
-        private static readonly Color StatusActive = new Color32(0x4a, 0xde, 0x80, 0xff);
-        private static readonly Color StatusInstalled = new Color32(0x60, 0xa5, 0xfa, 0xff);
+        private static readonly Color StatusActive = RimLLMUIStyle.StatusGreen;
+        private static readonly Color StatusInstalled = RimLLMUIStyle.StatusBlue;
         private static readonly Color StatusPatchFailed = new Color32(0xef, 0x44, 0x44, 0xff);
         private static readonly Color StatusNotInstalled = new Color32(0x94, 0xa3, 0xb8, 0xff);
 
@@ -81,7 +77,7 @@ namespace RimLLM_Framework.Mod
         public static float GetHeight(float width)
         {
             // 說明段落 + 共用警語 + 每個目標一列
-            return 150f + RimLLMCompatBootstrap.Targets.Count * (RowHeight + RowGap);
+            return 150f + RimLLMCompatBootstrap.Targets.Count * (RimLLMUIStyle.StatusRowHeight + RimLLMUIStyle.StatusRowGap);
         }
 
         public static void DrawCompatSettings(Listing_Standard listing)
@@ -105,8 +101,8 @@ namespace RimLLM_Framework.Mod
 
             foreach (Row row in Rows)
             {
-                DrawRow(listing.GetRect(RowHeight), row);
-                listing.Gap(RowGap);
+                DrawRow(listing.GetRect(RimLLMUIStyle.StatusRowHeight), row);
+                listing.Gap(RimLLMUIStyle.StatusRowGap);
             }
         }
 
@@ -115,10 +111,9 @@ namespace RimLLM_Framework.Mod
             bool enabled = Settings.IsCompatTakeoverEnabled(row.Target.ModId);
             Color statusColor = StatusColor(row, enabled);
 
-            Widgets.DrawBoxSolid(rowRect, RimLLMUIStyle.ChipFill);
-            if (Mouse.IsOver(rowRect))
+            Color tint = row.Installed ? Color.white : DimmedTint;
+            if (RimLLMUIStyle.DrawStatusRow(rowRect, statusColor, row.Title, StatusBadge(row, enabled), tint, CheckboxSize + 8f))
             {
-                Widgets.DrawHighlight(rowRect);
                 TooltipHandler.TipRegion(rowRect, BuildTooltip(row, enabled));
             }
 
@@ -126,28 +121,8 @@ namespace RimLLM_Framework.Mod
                 rowRect.xMax - RowPadding - CheckboxSize,
                 rowRect.y + (rowRect.height - CheckboxSize) / 2f,
                 CheckboxSize, CheckboxSize);
-            Rect badgeRect = new Rect(checkboxRect.x - 8f - BadgeWidth, rowRect.y, BadgeWidth, rowRect.height);
-            Rect dotRect = new Rect(
-                rowRect.x + RowPadding,
-                rowRect.y + (rowRect.height - DotSize) / 2f,
-                DotSize, DotSize);
-            Rect titleRect = new Rect(dotRect.xMax + 8f, rowRect.y, badgeRect.x - dotRect.xMax - 16f, rowRect.height);
 
-            if (!row.Installed) GUI.color = DimmedTint;
-
-            Widgets.DrawBoxSolid(dotRect, statusColor * GUI.color);
-            using (RimLLMUIStyle.With(TextAnchor.MiddleLeft, GameFont.Small, wordWrap: false))
-            {
-                Widgets.Label(titleRect, row.Title);
-            }
-            using (RimLLMUIStyle.With(TextAnchor.MiddleRight, GameFont.Tiny, wordWrap: false))
-            {
-                Color previousColor = GUI.color;
-                GUI.color = statusColor * previousColor;
-                Widgets.Label(badgeRect, StatusBadge(row, enabled));
-                GUI.color = previousColor;
-            }
-
+            GUI.color = tint;
             bool toggled = enabled;
             Widgets.Checkbox(checkboxRect.position, ref toggled, CheckboxSize);
             GUI.color = Color.white;

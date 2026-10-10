@@ -289,7 +289,7 @@ namespace RimLLM_Framework.Mod
                 string result;
                 try
                 {
-                    IChatClient client = RimLLMProvider.CreateChatClient("RimLLM.SchemaSelfTest");
+                    IChatClient client = RimLLMProvider.CreateChatClient(ServiceConsumerList.SchemaSelfTestModId);
                     SchemaSelfTestPayload payload = await client.GetResponseObjectAsync<SchemaSelfTestPayload>(
                         new List<ChatMessage>
                         {

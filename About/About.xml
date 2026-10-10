@@ -3,7 +3,7 @@
   <name>RimLLM Framework</name>
   <author>綠菇</author>
   <packageId>GreenMushroom.RimLLMFramework</packageId>
-  <modVersion>2026.10.02.4</modVersion>
+  <modVersion>2026.10.10.1</modVersion>
   <supportedVersions>
     <li>1.6</li>
   </supportedVersions>
@@ -21,7 +21,8 @@ This mod provides a stable and flexible foundation for managing API keys, model 
 7. <b>Embedding SDK</b>: A public embedding API backed by Google Gemini, OpenAI, Ollama, or OpenAI-compatible endpoints, so other mods can build semantic search and clustering on top of the framework.
 8. <b>Provider Stats</b>: Each provider settings page shows a request success-rate progress bar and an API-side prompt cache hit-rate chart (supports server-side prompt caching, including Gemini via its OpenAI-compatible endpoint).
 9. <b>Developer SDK</b>: Everything crossing the boundary is a standard Microsoft.Extensions.AI type (IChatClient, IEmbeddingGenerator) — no bespoke client interface to learn, and no registration step. Includes dynamic streaming control and a cached JSON Schema pipeline that normalizes Microsoft.Extensions.AI schema output into a single OpenAI-compatible dialect, so other mods can integrate LLM services and build Agent tools quickly and reliably.
-10. <b>Third-Party Integration</b>: An Integrations settings tab can force other AI mods to route their LLM traffic through RimLLM — currently RimTalk (cj.rimtalk), Auto Translation (seohyeon.autotranslation), Mod Compatibility Checker (modcompatchecker.main), and Simplified Chinese Automation: One (ow1r.scauto). Off by default; when enabled, target mod requests use RimLLM's fallback chain, budget, throttling and usage stats while its own API settings are ignored, supporting streaming dialogue, XML batch translations, and conflict diagnosis. Requires Harmony.]]>
+10. <b>Third-Party Integration</b>: An Integrations settings tab can force other AI mods to route their LLM traffic through RimLLM — currently RimTalk (cj.rimtalk), Auto Translation (seohyeon.autotranslation), Mod Compatibility Checker (modcompatchecker.main), and Simplified Chinese Automation: One (ow1r.scauto). Off by default; when enabled, target mod requests use RimLLM's fallback chain, budget, throttling and usage stats while its own API settings are ignored, supporting streaming dialogue, XML batch translations, and conflict diagnosis. Requires Harmony.
+11. <b>Mods Using RimLLM</b>: A settings tab lists the active mods that declare RimLLM Framework as a dependency, and marks which ones (including taken-over mods) have actually called RimLLM this session.]]>
   </description>
   <modDependencies>
     <li>

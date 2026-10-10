@@ -288,6 +288,14 @@ namespace RimLLM_Framework.Mod
             },
             new DetailPage
             {
+                Id = "Consumers",
+                MenuLabelKey = "RimLLM_TabConsumers",
+                Title = () => "RimLLM_TitleConsumers".Translate(),
+                Draw = ServiceConsumersDrawer.DrawServiceConsumers,
+                EstimateHeight = ServiceConsumersDrawer.GetHeight
+            },
+            new DetailPage
+            {
                 Id = "ChatTest",
                 MenuLabelKey = "RimLLM_TabChatTest",
                 Title = () => "RimLLM_ChatTitle".Translate(),

@@ -127,8 +127,7 @@ namespace RimLLM_Framework.Mod
                     // 刪除按鈕
                     if (Widgets.ButtonText(deleteRect, "X"))
                     {
-                        chain.RemoveAt(i);
-                        Settings.FallbackChain = chain;
+                        Settings.RemoveFallbackEntry(chain[i]);
                         Settings.Write();
                         break;
                     }

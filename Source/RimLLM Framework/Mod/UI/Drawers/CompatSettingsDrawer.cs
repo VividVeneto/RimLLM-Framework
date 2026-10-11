@@ -34,15 +34,14 @@ namespace RimLLM_Framework.Mod
         private sealed class Row
         {
             public RimLLMCompatTarget Target;
-            public bool Installed;
-            public bool Patched;
+            public CompatRowState State;
             public string Title;
         }
 
         private static List<Row> _rows;
 
         /// <summary>
-        /// 排序：可用（已安裝且掛載成功）→ 掛載失敗 → 未安裝。
+        /// 排序：可用（已啟用且掛載成功）→ 掛載失敗 → 已安裝未啟用 → 未安裝。
         /// 玩家真正能操作的列排最前，清單變長時不必在一堆未安裝項目裡找。
         /// </summary>
         private static List<Row> Rows
@@ -57,21 +56,40 @@ namespace RimLLM_Framework.Mod
                     rows.Add(new Row
                     {
                         Target = target,
-                        Installed = target.IsInstalled,
-                        Patched = target.IsPatched,
+                        State = Classify(target.IsInstalled, target.IsDownloaded, target.IsPatched),
                         Title = $"<b>{target.DisplayName}</b>  <color=#94a3b8>{target.ModId}</color>"
                     });
                 }
-                rows.Sort((a, b) => SortRank(a).CompareTo(SortRank(b)));
+                rows.Sort((a, b) => SortRank(a.State).CompareTo(SortRank(b.State)));
                 _rows = rows;
                 return _rows;
             }
         }
 
-        private static int SortRank(Row row)
+        /// <summary>目標 Mod 在設定頁的狀態；未安裝與未啟用分開，掛載失敗只可能發生在已啟用時。</summary>
+        internal enum CompatRowState
         {
-            if (!row.Installed) return 2;
-            return row.Patched ? 0 : 1;
+            NotInstalled,
+            Inactive,
+            PatchFailed,
+            Ready
+        }
+
+        internal static CompatRowState Classify(bool installed, bool downloaded, bool patched)
+        {
+            if (!installed) return downloaded ? CompatRowState.Inactive : CompatRowState.NotInstalled;
+            return patched ? CompatRowState.Ready : CompatRowState.PatchFailed;
+        }
+
+        internal static int SortRank(CompatRowState state)
+        {
+            switch (state)
+            {
+                case CompatRowState.Ready: return 0;
+                case CompatRowState.PatchFailed: return 1;
+                case CompatRowState.Inactive: return 2;
+                default: return 3;
+            }
         }
 
         public static float GetHeight(float width)
@@ -111,7 +129,7 @@ namespace RimLLM_Framework.Mod
             bool enabled = Settings.IsCompatTakeoverEnabled(row.Target.ModId);
             Color statusColor = StatusColor(row, enabled);
 
-            Color tint = row.Installed ? Color.white : DimmedTint;
+            Color tint = row.State >= CompatRowState.PatchFailed ? Color.white : DimmedTint;
             if (RimLLMUIStyle.DrawStatusRow(rowRect, statusColor, row.Title, StatusBadge(row, enabled), tint, CheckboxSize + 8f))
             {
                 TooltipHandler.TipRegion(rowRect, BuildTooltip(row, enabled));
@@ -141,23 +159,35 @@ namespace RimLLM_Framework.Mod
         /// </summary>
         private static Color StatusColor(Row row, bool enabled)
         {
-            if (!row.Installed) return StatusNotInstalled;
-            if (!row.Patched) return StatusPatchFailed;
-            return enabled ? StatusActive : StatusInstalled;
+            switch (row.State)
+            {
+                case CompatRowState.NotInstalled:
+                case CompatRowState.Inactive: return StatusNotInstalled;
+                case CompatRowState.PatchFailed: return StatusPatchFailed;
+                default: return enabled ? StatusActive : StatusInstalled;
+            }
         }
 
         private static string StatusBadge(Row row, bool enabled)
         {
-            if (!row.Installed) return "RimLLM_CompatBadgeNotInstalled".Translate();
-            if (!row.Patched) return "RimLLM_CompatBadgePatchFailed".Translate();
-            return (enabled ? "RimLLM_CompatBadgeActive" : "RimLLM_CompatBadgeInstalled").Translate();
+            switch (row.State)
+            {
+                case CompatRowState.NotInstalled: return "RimLLM_CompatBadgeNotInstalled".Translate();
+                case CompatRowState.Inactive: return "RimLLM_CompatBadgeInactive".Translate();
+                case CompatRowState.PatchFailed: return "RimLLM_CompatBadgePatchFailed".Translate();
+                default: return (enabled ? "RimLLM_CompatBadgeActive" : "RimLLM_CompatBadgeInstalled").Translate();
+            }
         }
 
         private static string StatusDescription(Row row, bool enabled)
         {
-            if (!row.Installed) return "RimLLM_CompatStatusNotInstalled".Translate();
-            if (!row.Patched) return "RimLLM_CompatStatusPatchFailed".Translate(row.Target.PatchError ?? string.Empty);
-            return (enabled ? "RimLLM_CompatStatusActive" : "RimLLM_CompatStatusInstalled").Translate();
+            switch (row.State)
+            {
+                case CompatRowState.NotInstalled: return "RimLLM_CompatStatusNotInstalled".Translate();
+                case CompatRowState.Inactive: return "RimLLM_CompatStatusInactive".Translate();
+                case CompatRowState.PatchFailed: return "RimLLM_CompatStatusPatchFailed".Translate(row.Target.PatchError ?? string.Empty);
+                default: return (enabled ? "RimLLM_CompatStatusActive" : "RimLLM_CompatStatusInstalled").Translate();
+            }
         }
 
         /// <summary>只在滑鼠停在該列時才組字串，避免每幀對每列做 Translate 與串接。</summary>

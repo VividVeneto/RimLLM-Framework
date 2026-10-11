@@ -46,6 +46,7 @@
   <RimLLM_AddToFallbackTitle><b>Add Model to Fallback Chain</b></RimLLM_AddToFallbackTitle>
   <RimLLM_ModelsExplanation>Fine-tune each model in the fallback chain: its level (for LowestCost routing and MinFallbackLevel filtering) and its context window (manual values marked * take priority over API-reported ones).</RimLLM_ModelsExplanation>
   <RimLLM_ModelsEmptyWarning>&lt;color=yellow&gt;No models in the fallback chain yet. Add some on the Model Settings tab first!&lt;/color&gt;</RimLLM_ModelsEmptyWarning>
+  <RimLLM_ConfirmRemoveModel>Remove {0} from the fallback chain? Its tier and context-window settings will be cleared too.</RimLLM_ConfirmRemoveModel>
   <RimLLM_SelectProviderBtn>Provider: {0}</RimLLM_SelectProviderBtn>
   <RimLLM_SelectModelBtn>Model: {0}</RimLLM_SelectModelBtn>
   <RimLLM_SelectModelPlaceholder>Select Model</RimLLM_SelectModelPlaceholder>
@@ -229,11 +230,13 @@
   <RimLLM_CompatTakeoverWarning>⚠ While enabled, {0}'s own API key / model / endpoint settings are ignored — every request goes to RimLLM's fallback chain. Offline or local-only users (e.g. Player2, a local server configured inside {0}) will be switched to whatever RimLLM has configured.</RimLLM_CompatTakeoverWarning>
   <RimLLM_CompatTakeoverWarningShared>⚠ While takeover is on, that mod's own API key / model / endpoint settings are ignored — every request goes through RimLLM's fallback chain. Hover a row for details.</RimLLM_CompatTakeoverWarningShared>
   <RimLLM_CompatOfflineFallbackNote>If RimLLM has no usable provider at request time (empty fallback chain, missing keys), the request silently falls back to the mod's native path and a warning is logged.</RimLLM_CompatOfflineFallbackNote>
-  <RimLLM_CompatStatusNotInstalled>Not installed / not active in the mod list</RimLLM_CompatStatusNotInstalled>
+  <RimLLM_CompatStatusNotInstalled>Not installed</RimLLM_CompatStatusNotInstalled>
   <RimLLM_CompatStatusInstalled>Installed — takeover off (native path)</RimLLM_CompatStatusInstalled>
   <RimLLM_CompatStatusActive>Takeover active — traffic routed through RimLLM</RimLLM_CompatStatusActive>
   <RimLLM_CompatStatusPatchFailed>Installed, but the hook failed to attach (mod version mismatch?): {0}</RimLLM_CompatStatusPatchFailed>
   <RimLLM_CompatBadgeNotInstalled>Not installed</RimLLM_CompatBadgeNotInstalled>
+  <RimLLM_CompatBadgeInactive>Not enabled</RimLLM_CompatBadgeInactive>
+  <RimLLM_CompatStatusInactive>Installed but not active — enable it in the mod list</RimLLM_CompatStatusInactive>
   <RimLLM_CompatBadgeInstalled>Installed</RimLLM_CompatBadgeInstalled>
   <RimLLM_CompatBadgeActive>Active</RimLLM_CompatBadgeActive>
   <RimLLM_CompatBadgePatchFailed>Hook failed</RimLLM_CompatBadgePatchFailed>

@@ -41,6 +41,9 @@ namespace RimLLM_Framework.Compat
         /// <summary>目標 Mod 是否在目前的 Mod 清單中啟用。</summary>
         public bool IsInstalled => ModLister.GetActiveModWithIdentifier(ModId, ignorePostfix: true) != null;
 
+        /// <summary>目標 Mod 是否存在於本機（不論是否啟用），用來區分「未安裝」與「已安裝但未啟用」。</summary>
+        public bool IsDownloaded => ModLister.GetModWithIdentifier(ModId, ignorePostfix: true) != null;
+
         /// <summary>玩家是否在設定頁開啟接管。</summary>
         public bool IsEnabled => RimLLMFrameworkMod.Settings != null && RimLLMFrameworkMod.Settings.IsCompatTakeoverEnabled(ModId);
 

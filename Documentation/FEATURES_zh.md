@@ -11,6 +11,7 @@
    * **Kimi**、**MiniMax**、**Qwen** 提供一鍵切換「使用中國專用端點」（預設關閉），以改善連線品質。
 2. **容錯與模型 Fallback**
    * **客戶端 Fallback 鏈**：可設定由主要模型與多個精確備援模型組成的鏈。目前模型遇到逾時、速率限制（HTTP 429）或連線錯誤時，框架會無縫往下切換。UI 產生的項目為 `Provider:Model` 形式；框架仍相容只填供應商的舊項目，並使用該供應商的預設模型。
+     * 「模型設置」分頁逐列列出備援鏈條目的分級、上下文上限與 **X** 刪除鈕。刪除前會先確認，並一併清除該條目的手動上下文上限（分級覆寫則在鏈上已無同名模型時才清）。
    * **OpenRouter 服務端 Fallback**：OpenRouter 的項目可以用逗號列出多個模型 —— 把 `ChatOptions.ModelId` 設為 `"OpenRouter:model-a, model-b, model-c"`（Fallback 鏈項目也接受同樣的格式）。此時供應商會改送 OpenRouter 的 `models` 陣列而非單一 `model` 欄位，把「要用哪一個」的決定交給 OpenRouter 服務端；只填一個模型名時仍送出一般的 `model`。由 `TestOpenRouterFallbackPayload` 驗證。注意設定介面是從快取模型清單一次挑一個模型來組出項目，因此這種多模型寫法來自呼叫端程式碼，而不是 Fallback 鏈編輯器。
    * `Retry-After` 在所有路徑上都支援 RFC 7231 允許的兩種格式 —— 延遲秒數與 HTTP 日期。
    * **HTTP 402 不重試**：402 代表帳戶餘額已經用完，餘額不會在退避的幾十秒內變出來，因此直接換下一個候選，不先耗光重試額度。訊息只是提到「quota」的 429（Gemini 每分鐘限流）仍照常退避重試。
@@ -56,6 +57,7 @@
     * 提供 `RimWorldFunctionInvoker.AsMainThreadFunctionInvokingClient()`，自動將工具叫用委派排入 Unity 主執行緒執行，杜絕 RimWorld 跨執行緒崩潰風險。
 12. **第三方整合（強制其他 Mod 改走 RimLLM）**
     * 設定頁新增「第三方整合」分頁，列出 RimLLM 可以接管 LLM 流量的 Mod——目前包含 **RimTalk**（`cj.rimtalk`）、**Auto Translation**（`seohyeon.autotranslation`）**Mod 兼容性檢查器**（`modcompatchecker.main`）與 **簡中自動化：One**（`ow1r.scauto`）。開關開啟後，目標 Mod 的所有請求一律導入 RimLLM 的備援鏈、預算、節流與用量統計。開啟期間目標 Mod 自己的 API 金鑰／模型／端點設定會被忽略；開關即時生效不需重啟，預設**關閉**。
+    * 每一列會顯示四種狀態之一：**未安裝**（本機沒有該 Mod）、**未啟用**（已安裝但未在 Mod 清單中啟用，請到清單啟用）、**掛載失敗**，或**已安裝／接管中**。已安裝未啟用的排在未安裝之前。
     * **RimTalk**：提示工程完全不動，訊息（含「Output JSONL」指示）原樣轉送，串流文字逐塊餵進 RimTalk 自己的 `JsonStreamParser`，氣泡仍然像原生一樣一行一行冒出來。推理內容不會混進 JSONL 串流，且這類請求關閉思考以對齊 RimTalk 自身的預設。
     * **Auto Translation**：完整支援單條與 XML 批次翻譯。以原生具備批次能力與佔位符防護的 `Translator_OpenAICompatible` 作為哨兵轉接，佔位符（`__PH0__` 等）防護、XML 批次打包與解析均沿用 Auto Translation 自身邏輯。開關開啟時自動同步當前翻譯器為哨兵，關閉或 RimLLM 缺金鑰/離線時自動退回原生翻譯引擎並節流警告。
     * **Mod 兼容性檢查器**：攔截 `AIService.CallAPIWithTimeout`，將 Harmony/XML 衝突分析、依賴問題與報錯診斷等請求全面導流至 RimLLM。接管開啟時自動將 `IsAIConfigured` 覆寫為 `true`，玩家無需在檢查器內重複設定金鑰即可直接使用 AI 診斷，並自動短路餘額查詢以杜絕 401 報錯。

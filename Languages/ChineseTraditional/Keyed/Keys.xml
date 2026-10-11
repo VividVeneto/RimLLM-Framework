@@ -46,6 +46,7 @@
   <RimLLM_AddToFallbackTitle><b>新增模型至 Fallback 鏈</b></RimLLM_AddToFallbackTitle>
   <RimLLM_ModelsExplanation>微調備援鏈上每個模型：分級（影響 LowestCost 路由與 MinFallbackLevel 過濾）與上下文上限（標 * 的手動值優先於 API 回報值）。</RimLLM_ModelsExplanation>
   <RimLLM_ModelsEmptyWarning>&lt;color=yellow&gt;備援鏈目前沒有模型，請先到「模型設置」分頁新增！&lt;/color&gt;</RimLLM_ModelsEmptyWarning>
+  <RimLLM_ConfirmRemoveModel>要將 {0} 從備援鏈移除嗎？它的分級與上下文上限設定也會一併清除。</RimLLM_ConfirmRemoveModel>
   <RimLLM_SelectProviderBtn>供應商: {0}</RimLLM_SelectProviderBtn>
   <RimLLM_SelectModelBtn>模型: {0}</RimLLM_SelectModelBtn>
   <RimLLM_SelectModelPlaceholder>請選擇模型</RimLLM_SelectModelPlaceholder>
@@ -229,11 +230,13 @@
   <RimLLM_CompatTakeoverWarning>⚠ 開啟期間 {0} 自己的 API 金鑰／模型／端點設定會被忽略，所有請求一律走 RimLLM 的備援鏈。離線或純本地的使用者（例如 Player2、在 {0} 內設定的本地伺服器）會被切換到 RimLLM 目前設定的供應商。</RimLLM_CompatTakeoverWarning>
   <RimLLM_CompatTakeoverWarningShared>⚠ 接管開啟期間，該 Mod 自己的 API 金鑰／模型／端點設定會被忽略，所有請求一律走 RimLLM 的備援鏈。將滑鼠移到列上可查看詳情。</RimLLM_CompatTakeoverWarningShared>
   <RimLLM_CompatOfflineFallbackNote>若請求當下 RimLLM 沒有任何可用供應商（備援鏈為空、缺金鑰），會自動退回該 Mod 的原生路徑並記錄一筆警告。</RimLLM_CompatOfflineFallbackNote>
-  <RimLLM_CompatStatusNotInstalled>未安裝／未在 Mod 清單中啟用</RimLLM_CompatStatusNotInstalled>
+  <RimLLM_CompatStatusNotInstalled>未安裝</RimLLM_CompatStatusNotInstalled>
   <RimLLM_CompatStatusInstalled>已安裝 — 接管未開啟（原生路徑）</RimLLM_CompatStatusInstalled>
   <RimLLM_CompatStatusActive>接管生效中 — 流量經由 RimLLM</RimLLM_CompatStatusActive>
   <RimLLM_CompatStatusPatchFailed>已安裝，但攔截掛載失敗（Mod 版本不相容？）：{0}</RimLLM_CompatStatusPatchFailed>
   <RimLLM_CompatBadgeNotInstalled>未安裝</RimLLM_CompatBadgeNotInstalled>
+  <RimLLM_CompatBadgeInactive>未啟用</RimLLM_CompatBadgeInactive>
+  <RimLLM_CompatStatusInactive>已安裝但未啟用 — 請在 Mod 清單中啟用</RimLLM_CompatStatusInactive>
   <RimLLM_CompatBadgeInstalled>已安裝</RimLLM_CompatBadgeInstalled>
   <RimLLM_CompatBadgeActive>接管中</RimLLM_CompatBadgeActive>
   <RimLLM_CompatBadgePatchFailed>掛載失敗</RimLLM_CompatBadgePatchFailed>

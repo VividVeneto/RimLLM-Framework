@@ -902,6 +902,30 @@ namespace RimLLM_Framework.Mod
             }
         }
 
+        /// <summary>
+        /// 從備援鏈移除條目（含舊存檔殘留的重複），並清掉它專屬的上下文上限覆寫；
+        /// 分級覆寫以模型名稱為鍵、可能被其他供應商的同名模型共用，只在鏈上已無同名模型時才清。
+        /// </summary>
+        public void RemoveFallbackEntry(string entry)
+        {
+            if (string.IsNullOrEmpty(entry)) return;
+            lock (_settingsLock)
+            {
+                _fallbackChain.RemoveAll(e => e == entry);
+                _contextWindowOverrides.Remove(entry);
+
+                int colonIndex = entry.IndexOf(':');
+                if (colonIndex < 0) return;
+                string modelName = entry.Substring(colonIndex + 1);
+                bool stillUsed = _fallbackChain.Exists(e =>
+                {
+                    int i = e.IndexOf(':');
+                    return i >= 0 && e.Substring(i + 1) == modelName;
+                });
+                if (!stillUsed) _modelLevelOverrides.Remove(modelName);
+            }
+        }
+
         public int GetModelLevelOverride(string modelName)
         {
             if (string.IsNullOrEmpty(modelName)) return 0;

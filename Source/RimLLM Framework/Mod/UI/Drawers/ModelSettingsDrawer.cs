@@ -57,14 +57,21 @@ namespace RimLLM_Framework.Mod
             }
             else
             {
+                string entryToRemove = null;
                 for (int i = 0; i < entries.Count; i++)
                 {
                     string entry = entries[i];
                     Rect itemRect = listing.GetRect(30f);
 
+                    // 最右側為刪除按鈕，其餘按鈕依序往左排
+                    if (Widgets.ButtonText(new Rect(itemRect.x + itemRect.width - 40f, itemRect.y, 30f, itemRect.height), "X"))
+                    {
+                        entryToRemove = entry;
+                    }
+
                     int colonIndex = entry.IndexOf(':');
                     bool hasModelName = colonIndex >= 0;
-                    float labelWidth = hasModelName ? (itemRect.width - 170f) : itemRect.width;
+                    float labelWidth = hasModelName ? (itemRect.width - 200f) : (itemRect.width - 50f);
                     Rect labelRect = new Rect(itemRect.x, itemRect.y, labelWidth, itemRect.height);
                     Widgets.Label(labelRect, $" <color=cyan>{entry}</color>");
 
@@ -73,11 +80,25 @@ namespace RimLLM_Framework.Mod
 
                     string modelName = entry.Substring(colonIndex + 1);
                     DrawLevelButton(
-                        new Rect(itemRect.x + itemRect.width - 80f, itemRect.y, 70f, itemRect.height),
+                        new Rect(itemRect.x + itemRect.width - 115f, itemRect.y, 70f, itemRect.height),
                         modelName);
                     DrawContextWindowButton(
-                        new Rect(itemRect.x + itemRect.width - 160f, itemRect.y, 70f, itemRect.height),
+                        new Rect(itemRect.x + itemRect.width - 190f, itemRect.y, 70f, itemRect.height),
                         entry, entry.Substring(0, colonIndex), modelName);
+                }
+
+                if (entryToRemove != null)
+                {
+                    // 刪除會連同該模型調過的分級／上下文上限一起清掉，先確認避免誤觸
+                    string removed = entryToRemove;
+                    Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
+                        "RimLLM_ConfirmRemoveModel".Translate(removed),
+                        () =>
+                        {
+                            Settings.RemoveFallbackEntry(removed);
+                            Settings.Write();
+                        },
+                        destructive: true));
                 }
             }
             listing.GapLine(10f);

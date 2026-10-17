@@ -65,3 +65,4 @@ ehthumbs.db
 # 6. In-game test mod build output (Source/RimLLM Framework.InGameTests)
 # ------------------------------------------------------------------------------
 Source/RimLLM Framework.InGameTests/Mod/Assemblies/
+Source/RimLLM Framework.InGameTests/Mod/Configs/

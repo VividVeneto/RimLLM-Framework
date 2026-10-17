@@ -4,6 +4,8 @@
 
 各項功能的詳細行為與設計理由。SDK 用法請見 README。
 
+僅支援 **RimWorld 1.7／.NET 10**，使用端也需重新編譯為 `net10.0`。安全金鑰儲存使用 Windows DPAPI、macOS Keychain 或 Linux Secret Service；開發用遊戲內測試採 SmashPhil DevTools。建置、測試及原生鑰匙圈需求詳見[架構文件](ARCHITECTURE_zh.md)。
+
 1. **多供應商支援**
    * 原生支援 Google **Gemini**、**OpenAI**、**DeepSeek**、**Groq**、**Grok (xAI)**、**Z.ai**、**OpenRouter**、**Kimi**、**MiniMax**、**Qwen**、**NVIDIA** 與 **Player2**。
    * **Player2**（https://player2.game/）預設連向本機 Player2 App（`http://127.0.0.1:4315/v1`）：開著 App 就能用，本機模式不需 API 金鑰，實際模型由 App 內的 AI Selection 決定。它沒有 `/models` 端點，快取清單固定只有一個 `player2`。改用雲端 API 時，把端點改為 `https://api.player2.game/v1` 並填入 p2Key —— 雲端模式必須填金鑰，未填時設定頁會警告。它的美元費率記為已知的 $0（本地免費；雲端以 joules 計費，joules 不列入費用估算）。
@@ -22,7 +24,7 @@
    * **路由策略**：`PriorityFailover`（依鏈順序）、`MinLatency`、`RoundRobin` 與 `LowestCost`。`LowestCost` 直接沿用框架已經依 API 費率自動判定的模型分級排序，不需要另外維護一份價格表。所有排序都是穩定的，同級的候選會保留鏈本身的順序。透過 `ChatOptions.ModelId` 指定的模型不參與排序，固定排在第一位。
    * **上下文上限**：重新整理供應商的模型清單時，會一併記下 API 回報的上下文上限 —— OpenRouter 的 `context_length`、Groq 的 `context_window`、vLLM 的 `max_model_len`，以及 Gemini 原生 `/models` 端點的 `inputTokenLimit`（它的 OpenAI 相容端點不回報）。API 沒涵蓋的模型，會在同一次重新整理時下載 [models.dev](https://models.dev) 資料庫補齊（有輸入上限就用輸入上限，否則用整個視窗）；OpenRouter 的 API 已涵蓋全部模型所以略過，OpenAI 相容端點的模型名稱由使用者自訂也略過。會選 models.dev 而不是 LiteLLM 的 `model_prices_and_context_window.json`，是因為拿兩者對照官方文件後，互相矛盾的項目中 models.dev 較常正確。「模型設置」分頁的每一列都會顯示上限，玩家也能手動填寫（標記 `*`），手動值優先。Mod 以 `RimLLMProvider.GetContextWindow` 讀取。
 3. **AES-256 設定加密**
-   * API 金鑰以 AES-256 對稱加密儲存，金鑰由目前 OS 使用者的保護機制包裝。新資料使用 `v3:` 格式；`v1`／`v2` 的裝置衍生密文僅供遷移，下一次存檔時會改寫成受保護金鑰格式。
+   * API 金鑰以 AES-256 對稱加密儲存，金鑰由目前 OS 使用者的保護機制包裝。僅接受 `v3:` 密文。無版本前綴、`v1:` 與 `v2:` 資料直接拒絕，不存取或建立儲存金鑰；不再保留裝置衍生金鑰、固定種子或舊格式遷移路徑。
    * 設定介面預設也會**遮罩金鑰**（只留頭尾，仍可辨認自己設定了哪一把），每一列另有切換鈕可暫時顯示以便編輯。這防的是與加密不同的外洩途徑：截圖、回報問題與直播。
    * 所有供應商（含 Gemini）都以 HTTP Header 傳遞金鑰，絕不放在請求 URL，避免金鑰進入代理或伺服器的存取日誌。
    * RimWorld 的所有 Mod 都在同一個遊戲行程內執行。本框架不宣稱能阻止惡意 Mod 讀取記憶體、對公開 API 使用反射，或以其他行程內手段繞過邊界。

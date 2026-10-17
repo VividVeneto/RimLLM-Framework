@@ -1,0 +1,7 @@
+<Project>
+  <Target Name="CheckRimWorldReferences" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="!Exists('$(RimWorldDir)Assembly-CSharp.dll') or !Exists('$(RimWorldDir)UnityStubs.dll') or !Exists('$(RimWorldDir)Waylith.dll')"
+           Text="RimWorld 1.7 assemblies not found. Set RimWorldDir (or RIMWORLD_DIR) to the game root directory." />
+    <Error Condition="!Exists('$(HarmonyDll)')" Text="Harmony 1.7 assembly not found. Set HarmonyDll or WorkshopDir." />
+  </Target>
+</Project>

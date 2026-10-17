@@ -26,6 +26,7 @@ csharp_style_var_for_built_in_types = false:suggestion
 csharp_style_var_when_type_is_apparent = true:suggestion
 dotnet_sort_system_directives_first = true
 
+
 # 私有欄位使用 _camelCase 前綴
 dotnet_naming_rule.private_fields_underscore.symbols = private_fields
 dotnet_naming_rule.private_fields_underscore.style = underscore_camel_case
@@ -34,3 +35,45 @@ dotnet_naming_symbols.private_fields.applicable_kinds = field
 dotnet_naming_symbols.private_fields.applicable_accessibilities = private
 dotnet_naming_style.underscore_camel_case.required_prefix = _
 dotnet_naming_style.underscore_camel_case.capitalization = camel_case
+
+# 現代 C# 語法偏好（.NET 10 / C# 14）
+csharp_style_namespace_declarations = file_scoped:suggestion
+dotnet_diagnostic.IDE0161.severity = suggestion
+
+csharp_style_implicit_object_creation_when_type_is_apparent = true:suggestion
+dotnet_diagnostic.IDE0090.severity = suggestion
+
+dotnet_style_prefer_collection_expression = when_types_exactly_match:suggestion
+dotnet_style_collection_initializer = true:suggestion
+dotnet_diagnostic.IDE0028.severity = suggestion
+dotnet_diagnostic.IDE0300.severity = suggestion
+dotnet_diagnostic.IDE0301.severity = suggestion
+dotnet_diagnostic.IDE0302.severity = suggestion
+dotnet_diagnostic.IDE0303.severity = suggestion
+dotnet_diagnostic.IDE0305.severity = suggestion
+
+csharp_prefer_simple_using_statement = true:suggestion
+dotnet_diagnostic.IDE0063.severity = suggestion
+
+csharp_style_pattern_matching_over_as_with_null_check = true:suggestion
+csharp_style_pattern_matching_over_is_with_cast_check = true:suggestion
+csharp_style_prefer_not_pattern = true:suggestion
+csharp_style_prefer_extended_property_pattern = true:suggestion
+dotnet_diagnostic.IDE0019.severity = suggestion
+dotnet_diagnostic.IDE0020.severity = suggestion
+dotnet_diagnostic.IDE0083.severity = suggestion
+dotnet_diagnostic.IDE0170.severity = suggestion
+
+csharp_style_prefer_switch_expression = true:suggestion
+dotnet_diagnostic.IDE0066.severity = suggestion
+
+dotnet_style_coalesce_expression = true:suggestion
+dotnet_style_null_propagation = true:suggestion
+dotnet_diagnostic.IDE0029.severity = suggestion
+dotnet_diagnostic.IDE0030.severity = suggestion
+dotnet_diagnostic.IDE0031.severity = suggestion
+dotnet_diagnostic.IDE0270.severity = suggestion
+
+# 停用 primary constructor 避免改變公開型別／反射契約
+csharp_style_prefer_primary_constructors = false:none
+dotnet_diagnostic.IDE0290.severity = none

@@ -1,6 +1,6 @@
 # RimLLM Framework
 
-[![RimWorld 1.6](https://img.shields.io/badge/RimWorld-1.6-brightgreen.svg)](http://rimworldgame.com/)
+[![RimWorld 1.7](https://img.shields.io/badge/RimWorld-1.7-brightgreen.svg)](http://rimworldgame.com/)
 ![Languages](https://img.shields.io/badge/languages-EN%20%7C%20繁中%20%7C%20简中-orange.svg)
 
 [繁體中文說明](README_zh.md)
@@ -21,7 +21,9 @@ Log.Message((await client.GetResponseAsync("What is AI?")).Text);
 > This framework is a dependency, not a standalone feature. At run time the player must have the
 > **RimLLM Framework** mod active *and* have configured at least one provider with an API key —
 > otherwise `RimLLMProvider.CreateChatClient` throws `InvalidOperationException` and calls fail with
-> `RimLLMException`. Supported game version: **RimWorld 1.6** (see `About/About.xml`).
+> `RimLLMException`. Supported game version: **RimWorld 1.7** (see `About/About.xml`).
+
+Consumer mods must rebuild for **.NET 10 (`net10.0`)**. RimWorld 1.6 and .NET Framework are no longer supported. Key storage uses Windows DPAPI, macOS Keychain, or Linux Secret Service (libsecret, a session D-Bus, and an unlocked keyring). Only `v3:` ciphertext is accepted; older formats are not supported.
 
 ## Contents
 
@@ -66,6 +68,7 @@ Reference the DLLs straight out of the installed framework mod. `<Private>false<
 
 ```xml
 <PropertyGroup>
+  <TargetFramework>net10.0</TargetFramework>
   <RimLLMDir>$(MSBuildProgramFiles32)\Steam\steamapps\common\RimWorld\Mods\RimLLM Framework\Assemblies</RimLLMDir>
 </PropertyGroup>
 
@@ -163,7 +166,7 @@ PawnIncidentDecision decision = await client.GetResponseObjectAsync<PawnIncident
 
 ### Native Tool Calling (Function Calling)
 
-RimLLM Framework provides native support for Microsoft.Extensions.AI Tool Calling (`AIFunction`, `ChatOptions.Tools`, `FunctionCallContent`). Every built-in provider speaks the OpenAI protocol, so tool definitions and calls use one wire shape everywhere. `AIFunctionFactory.Create` works in-game: the framework ships the `netstandard2.0` build of `Microsoft.Extensions.AI.Abstractions`, which is what keeps MEAI's schema generation off the `System.ComponentModel.DataAnnotations` assembly RimWorld's Mono does not have (see [Architecture §6](Documentation/ARCHITECTURE.md#6-official-sdks-and-provider-responsibilities)).
+RimLLM Framework provides native support for Microsoft.Extensions.AI Tool Calling (`AIFunction`, `ChatOptions.Tools`, `FunctionCallContent`). Every built-in provider speaks the OpenAI protocol, so tool definitions and calls use one wire shape everywhere. `AIFunctionFactory.Create` uses the .NET 10 MEAI assets and the game-provided System.Text.Json; see [Architecture](Documentation/ARCHITECTURE.md).
 
 #### 1. Auto-Invoking Mode with Unity Main-Thread Safety (Recommended)
 

@@ -1,6 +1,6 @@
 # RimLLM Framework
 
-[![RimWorld 1.6](https://img.shields.io/badge/RimWorld-1.6-brightgreen.svg)](http://rimworldgame.com/)
+[![RimWorld 1.7](https://img.shields.io/badge/RimWorld-1.7-brightgreen.svg)](http://rimworldgame.com/)
 ![Languages](https://img.shields.io/badge/languages-EN%20%7C%20繁中%20%7C%20简中-orange.svg)
 
 [English](README.md)
@@ -21,7 +21,9 @@ Log.Message((await client.GetResponseAsync("What is AI?")).Text);
 > 本框架是相依項，不是獨立功能。執行期玩家必須同時啟用 **RimLLM Framework** 這個 Mod，
 > 並且已經設定好至少一個帶 API 金鑰的供應商；否則 `RimLLMProvider.CreateChatClient` 會擲出
 > `InvalidOperationException`，呼叫也會以 `RimLLMException` 失敗。
-> 支援的遊戲版本：**RimWorld 1.6**（見 `About/About.xml`）。
+> 支援的遊戲版本：**RimWorld 1.7**（見 `About/About.xml`）。
+
+使用端 Mod 必須以 **.NET 10（`net10.0`）** 重新編譯；不再支援 RimWorld 1.6 或 .NET Framework。金鑰儲存使用 Windows DPAPI、macOS Keychain 或 Linux Secret Service（需 libsecret、工作階段 D-Bus 與已解鎖的鑰匙圈）。僅接受 `v3:` 密文，不再支援舊格式。
 
 ## 目錄
 
@@ -65,6 +67,7 @@ Log.Message((await client.GetResponseAsync("What is AI?")).Text);
 
 ```xml
 <PropertyGroup>
+  <TargetFramework>net10.0</TargetFramework>
   <RimLLMDir>$(MSBuildProgramFiles32)\Steam\steamapps\common\RimWorld\Mods\RimLLM Framework\Assemblies</RimLLMDir>
 </PropertyGroup>
 
@@ -161,7 +164,7 @@ PawnIncidentDecision decision = await client.GetResponseObjectAsync<PawnIncident
 
 ### 原生 Tool Calling（函式呼叫）
 
-RimLLM Framework 原生支援 Microsoft.Extensions.AI 的 Tool Calling（`AIFunction`、`ChatOptions.Tools`、`FunctionCallContent`）。所有內建供應商都走 OpenAI 協定，工具定義與呼叫只有一種 wire 形狀。`AIFunctionFactory.Create` 在遊戲內可正常使用：框架出貨的是 `Microsoft.Extensions.AI.Abstractions` 的 `netstandard2.0` 版本，讓 MEAI 的 schema 產生不再碰 RimWorld Mono 沒有的 `System.ComponentModel.DataAnnotations` 組件（詳見[架構設計 §6](Documentation/ARCHITECTURE_zh.md#6-官方-sdk-與供應商職責)）。
+RimLLM Framework 原生支援 Microsoft.Extensions.AI 的 Tool Calling（`AIFunction`、`ChatOptions.Tools`、`FunctionCallContent`）。所有內建供應商都走 OpenAI 協定，工具定義與呼叫只有一種 wire 形狀。`AIFunctionFactory.Create` 使用 MEAI 的 .NET 10 資產與遊戲內建的 System.Text.Json；詳見[架構設計](Documentation/ARCHITECTURE_zh.md)。
 
 #### 1. 自動迴圈執行模式（推薦，內建 Unity 主執行緒安全調度）
 

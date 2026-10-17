@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!--
-    RimTest Redux 遊戲內整合測試（開發用伴隨 Mod，不在 .slnx 內、不隨 RimLLM Framework 出貨）。
+    SmashPhil DevTools 遊戲內整合測試（開發用伴隨 Mod，不在 .slnx 內、不隨 RimLLM Framework 出貨）。
     驗證 headless 單元測試在 Unity 被 stub 掉時看不到的部分：
     相容層 Harmony 攔截是否真的掛上、出貨 DLL 在共用 AppDomain 內能否完整解析型別、語系檔是否被遊戲注入。
 
@@ -8,19 +8,15 @@
     `dotnet build "Source/RimLLM Framework/RimLLM Framework.csproj" -c Release`。
   -->
   <PropertyGroup>
-    <TargetFramework>net472</TargetFramework>
     <AssemblyName>RimLLM Framework.InGameTests</AssemblyName>
     <RootNamespace>RimLLM_Framework.InGameTests</RootNamespace>
-    <LangVersion>8.0</LangVersion>
     <OutputPath>Mod\Assemblies\</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
-    <DebugType>none</DebugType>
-    <DebugSymbols>false</DebugSymbols>
+    <GenerateDependencyFile>false</GenerateDependencyFile>
+    <DebugType>portable</DebugType>
+    <DebugSymbols>true</DebugSymbols>
     <AllowedReferenceRelatedFileExtensions>.pdb</AllowedReferenceRelatedFileExtensions>
-    <!-- RimTestRedux.dll 以 net481 建置；遊戲內同為 Mono 執行環境，版本差異無實際意義（同主專案對 RimTalk 的處理）。 -->
-    <ResolveAssemblyReferenceIgnoreTargetFrameworkAttributeVersionMismatch>true</ResolveAssemblyReferenceIgnoreTargetFrameworkAttributeVersionMismatch>
-    <!-- RimTest Redux 的 Workshop 安裝位置（Workshop 3762405308），可用 -p:RimTestReduxDir=... 覆寫。 -->
-    <RimTestReduxDir Condition="'$(RimTestReduxDir)' == ''">$(MSBuildThisFileDirectory)..\..\..\..\..\..\workshop\content\294100\3762405308\</RimTestReduxDir>
+    <DevToolsDll Condition="'$(DevToolsDll)' == ''">$(MSBuildThisFileDirectory)..\Libs\DevTools\DevTools.dll</DevToolsDll>
   </PropertyGroup>
 
   <ItemGroup>
@@ -29,11 +25,28 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Krafs.Rimworld.Ref" Version="1.6.4871" />
-    <PackageReference Include="Lib.Harmony" Version="2.4.1" ExcludeAssets="runtime" PrivateAssets="all" />
-    <!-- 以下全部 Private=false：執行期由各自的 Mod 提供，測試 Mod 只出貨自己的 DLL。 -->
-    <Reference Include="RimTestRedux">
-      <HintPath>$(RimTestReduxDir)1.6\Assemblies\RimTestRedux.dll</HintPath>
+    <Reference Include="Microsoft.Extensions.AI.Abstractions">
+      <HintPath>..\..\Assemblies\Microsoft.Extensions.AI.Abstractions.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Assembly-CSharp">
+      <HintPath>$(RimWorldDir)Assembly-CSharp.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityStubs">
+      <HintPath>$(RimWorldDir)UnityStubs.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Waylith">
+      <HintPath>$(RimWorldDir)Waylith.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(HarmonyDll)</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="DevTools">
+      <HintPath>$(DevToolsDll)</HintPath>
       <Private>false</Private>
     </Reference>
     <!-- 參考的是 Release 出貨的 DLL（../../Assemblies），內部成員透過 InternalsVisibleTo 開放。 -->
@@ -43,9 +56,12 @@
     </Reference>
   </ItemGroup>
 
-  <!-- 預設路徑只在 repo 位於 steamapps/common/RimWorld/Mods/ 底下時成立；其他位置給出明確提示，而不是一串 CS0246。 -->
-  <Target Name="CheckRimTestReduxDir" BeforeTargets="ResolveAssemblyReferences">
-    <Error Condition="!Exists('$(RimTestReduxDir)1.6\Assemblies\RimTestRedux.dll')"
-           Text="RimTestRedux.dll not found under '$(RimTestReduxDir)'. Subscribe to RimTest Redux (Workshop 3762405308) or pass -p:RimTestReduxDir=&lt;RimTest Redux mod folder&gt;\" />
+  <Target Name="CheckDevTools" BeforeTargets="ResolveReferences">
+    <Error Condition="!Exists('$(DevToolsDll)')"
+           Text="DevTools 1.7 DLL not found at '$(DevToolsDll)'. Pass -p:DevToolsDll=&lt;path to DevTools.dll&gt;" />
+  </Target>
+
+  <Target Name="CopyDevToolsForDevelopment" AfterTargets="Build">
+    <Copy SourceFiles="$(DevToolsDll)" DestinationFolder="$(TargetDir)" SkipUnchangedFiles="true" />
   </Target>
 </Project>

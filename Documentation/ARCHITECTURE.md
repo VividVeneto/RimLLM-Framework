@@ -19,7 +19,7 @@
 
 * The executor's streaming API is callback-shaped (`Func<ChatResponseUpdate, Task> onUpdateReceived`), while MEAI expects `IAsyncEnumerable<ChatResponseUpdate>`. The bridge between them is a **bounded** `System.Threading.Channels.Channel<T>` (64 updates); the producer awaits `WriteAsync`, so a slow consumer applies backpressure to the network read instead of buffering the whole stream in memory. The consumer side is `ChannelReader.ReadAllAsync()`.
 * Updates cross that bridge **verbatim** — the object the provider produced is the object you enumerate, with only `ModelId` rewritten. The framework no longer synthesizes a closing update of its own, so `UsageContent`, `FinishReason` and `ResponseId` are present exactly when the provider emits them.
-* Because `IAsyncEnumerable` reaches this project through the `bclasync` extern alias, C# 8 cannot compile an async iterator over it. `ReadAllAsync()` sidesteps that entirely: it returns the same assembly's `IAsyncEnumerable`, so no iterator has to be hand-written.
+* `IAsyncEnumerable` and `ValueTask` use the native .NET 10 types, without BCL compatibility packages or extern aliases.
 * A thin wrapper unwraps `ChannelClosedException` so producer failures surface to callers as the original `RimLLMException`.
 * The executor's fallback token estimate is accumulated chunk by chunk as a running count instead of buffering the streamed text, so an abnormally large stream cannot grow memory without bound.
 
@@ -39,8 +39,8 @@
 ### 6. Official SDKs and provider responsibilities
 
 * **One SDK for every provider.** All built-in providers go through the `OpenAI` SDK `2.14.0` and the `IChatClient` of Microsoft.Extensions.AI `10.10.0`; there is no raw HTTP chat path and no second SDK. Gemini uses Google's official OpenAI-compatible endpoint. The shared layer depends only on `IChatClient`, `LLMProviderCapabilities` and `ILLMProvider`.
-* **Stays on `net472`.** The SDKs' dependency DLLs ship with the mod, and `ProviderSdkIntegrationTests` loads each one, so a missing transitive assembly fails the build rather than the game.
-* **`Microsoft.Extensions.AI.Abstractions` ships its `netstandard2.0` build.** The `net462` build NuGet would otherwise pick references `System.ComponentModel.DataAnnotations`, which RimWorld's Mono lacks, so `AIFunctionFactory.Create` threw `TypeLoadException` in-game. `ShippedAbstractionsHasNoDataAnnotationsDependency` guards this choice.
+* **RimWorld 1.7 / .NET 10 only.** All three projects target `net10.0`, with SDK and MEAI assets selected normally by NuGet.
+* **MEAI.Abstractions uses its .NET 10 asset.** There is no forced netstandard asset or bundled legacy BCL; `ShippedAssembliesTargetNet10` verifies the release artifacts.
 * **Structured-output schemas** come from `System.Text.Json`'s `JsonSchemaExporter`, then `RimLLMSchemaBuilder` normalizes them into a subset every provider accepts: `$ref` pointers are inlined (cycles are cut at the CLR type), nesting is capped at 5 levels (OpenAI strict mode's limit; its 100-property total is not enforced yet), every member is listed in `required` with optionality expressed as a `["type","null"]` union, and `[Description]` is carried over.
 * **Rules for structured-output types**: schema generation and deserialization share one System.Text.Json contract, so don't put a custom `JsonConverter` on them. Mods migrating from Newtonsoft must switch `[JsonProperty("x")]` to `[JsonPropertyName("x")]` and use System.Text.Json's `[JsonIgnore]`; the old attributes are silently ignored.
 
@@ -50,7 +50,7 @@
 
 To avoid misunderstanding, here is an honest description of what each security mechanism actually protects against:
 
-* **API key encryption uses an OS-protected per-user key.** New entries use AES-256 with a random storage key wrapped by the current user's OS protection. Legacy `v1`/`v2` entries still use the old device-derived material only so they can be migrated; new data never derives its storage key from a source-embedded seed or `deviceUniqueIdentifier`. This protects copied settings from decryption by another user or machine, but it **cannot** defend against code running in the same user context or the same RimWorld process (including other mods), where the framework must use the key to serve requests.
+* **API key encryption uses an OS-protected per-user key.** New entries use AES-256 with a random storage key wrapped by the current user's OS protection. Only `v3:` ciphertext is supported; there is no fixed-seed or device-derived legacy decryption path. This protects copied settings from decryption by another user or machine, but it **cannot** defend against code running in the same user context or the same RimWorld process (including other mods), where the framework must use the key to serve requests.
 * **`modId` is an attribution label, not authentication.** Per-mod throttling preserves fair use for cooperative mods, while a shared safety ceiling (ten times the configured per-mod window) counts every actual provider call, including tool-loop continuations, and prevents rotating labels from creating unlimited provider calls. Same-process mods are still not isolated, so do not treat the SDK as a hostile-mod sandbox.
 * **Keys never reach URLs or logs.** All providers pass keys via HTTP headers; log output always goes through `SanitizeForLog` and is length-truncated, and the device identifier is masked in diagnostic exports.
 * **Refreshing a model list also contacts models.dev.** Besides the provider itself, the refresh downloads the public `https://models.dev/api.json` to fill in context window sizes. It is a plain GET with no API key or other player data; if it fails, the refresh still succeeds and only a warning is logged.
@@ -58,48 +58,57 @@ To avoid misunderstanding, here is an honest description of what each security m
 
 ---
 
+
+Storage protection follows the host platform: Windows wraps the random 256-bit key with current-user DPAPI; macOS stores it as a generic-password item through Security.framework's SecItem APIs; Linux uses libsecret and the session Secret Service. On macOS/Linux, `RimLLM_EncryptionKey.dat` contains only a random `keyring:` item identifier, never the storage key. Moving the reference file within the same user's keyring retains access; copying settings to a different user or machine does not copy the secret.
+
+Linux needs `libsecret-1.so.0`, a session D-Bus, and an unlocked Secret Service provider such as GNOME Keyring or a compatible KWallet setup. A sandboxed game must be allowed to access that service. libsecret operations are canceled after ten seconds. macOS needs an available login keychain and permission for RimWorld to access its item. An unavailable or locked provider produces an explicit error; no plaintext-key-file fallback is used.
+
+An exclusive per-profile lock coordinates concurrent processes; new DPAPI blobs or keyring references are published through a flushed temporary file and atomic rename. An existing reference with a missing secret is rejected rather than silently replaced. Preserve the reference file and its OS-protected secret when backing up encrypted settings. `SecureKeyStoreTests` covers reference-only files, reload, corruption, unavailable stores, lost keys and concurrent creation; a separate Linux integration harness exercises a real libsecret/D-Bus/GNOME Keyring session and two processes. macOS native calls still require a real macOS validation run.
+
+Only `v3:` ciphertext is supported. Legacy unversioned/v1/v2 formats, hardware salt injection, fixed seeds and migration helpers have been removed, along with the old CustomSalt and InitializeKeyAndIv APIs. Unknown prefixes return `null` before key-store access. For supported data, failed decryption still preserves the original ciphertext through the settings/telemetry callers. These protections do not isolate code running as the same OS user or inside the RimWorld process.
+
 ## 🧪 Unit tests and verification
 
 The project ships with a full unit test suite in `Source/RimLLM Framework.Tests` (a standalone project alongside the main one) covering AES encryption/decryption, model fallback, JSON Schema generation (normalization and repair), HTTP error mapping, `Retry-After` parsing, `ChatOptions` cloning, streaming retries and budget control.
 
-> **Prerequisite**: the tests need RimWorld's `Assembly-CSharp` and Unity DLLs at run time. Those files are not redistributable, so a local RimWorld installation is required.
-> The default path is `C:\Program Files (x86)\Steam\steamapps\common\RimWorld\RimWorldWin64_Data\Managed`,
-> and can be overridden with the MSBuild property `RimWorldManagedDir` or the environment variable `RIMWORLD_MANAGED_DIR`.
+### Build and runtime requirements
 
-Build and test from the project root with the `dotnet` CLI:
+Use the .NET 10 SDK. `global.json` selects a compatible 10.0 SDK, and `Source/Directory.Build.props` gives all three projects the same `net10.0` target and C# 14 language version. Compile against the **installed RimWorld 1.7 game root**, containing `Assembly-CSharp.dll`, `UnityStubs.dll` and `Waylith.dll`; the old `Krafs.Rimworld.Ref` package is no longer used. Game assemblies are not redistributed.
 
-```bash
-# Restore and rebuild the solution
+The default game path assumes this checkout is inside `RimWorld/Mods`. Elsewhere, set `-p:RimWorldDir="<game root>"` or `RIMWORLD_DIR`. Harmony defaults to Workshop item 2009463077's `1.7/Assemblies/0Harmony.dll`; override `HarmonyDll`, or `WorkshopDir` / `WORKSHOP_DIR`, when installed elsewhere. Missing references fail the build with a targeted error.
+
+```powershell
 dotnet build "Source/RimLLM Framework.slnx"
-
-# Run all NUnit unit tests
 dotnet test "Source/RimLLM Framework.Tests/RimLLM Framework.Tests.csproj"
-```
-
-> **Note**: the `Krafs.Rimworld.Ref` reference assemblies do not restrict the BCL surface, so it is possible to
-> write code that compiles but fails inside RimWorld's Mono runtime. Known examples: `Stack<T>` throws
-> `TypeLoadException`, and the parameterless `String.TrimEnd()` overload does not exist.
-> Always verify with an actual `dotnet test` run rather than relying on a successful build.
-
-### In-game integration tests (RimTest Redux)
-
-`Source/RimLLM Framework.InGameTests` is a development-only companion mod (outside the `.slnx`, never shipped) that runs
-[RimTest Redux](https://github.com/ilyvion/rimtest-redux) suites inside the live game. It covers what the headless tests cannot see with Unity stubbed out:
-
-- **Startup wiring**: settings, manager and a live `RimLLMDispatcher` main-thread pump (headless tests always take the synchronous no-pump fallback).
-- **Assembly loading**: every shipped DLL resolves all of its types in RimWorld's shared AppDomain, which has no binding redirects.
-- **Compat hooks**: every hook listed in the `Expected` table of `CompatPatchTests` (update it whenever a `*CompatPatch.Apply` gains or drops a hook) carries a `GreenMushroom.RimLLMFramework` patch on the installed RimTalk / Auto Translation / Mod Compatibility Checker; a target that is not active is logged as `skipped`.
-- **Translation injection**: in every language the game has loaded, each key in `Languages/*/Keyed` is injected from this mod's own file, with no load error attributable to this mod; languages that are not loaded are logged as `skipped` (switch the game language to cover them).
-
-Dependencies: Harmony, ilyvion's Laboratory and RimTest Redux (Workshop 3762405308). The test project references the Release DLL in `Assemblies/`
-(internals are exposed through `InternalsVisibleTo`) and never rebuilds it, so build the framework in Release first:
-
-```bash
 dotnet build "Source/RimLLM Framework/RimLLM Framework.csproj" -c Release
 dotnet build "Source/RimLLM Framework.InGameTests/RimLLM Framework.InGameTests.csproj"
 ```
 
-Then link `Source/RimLLM Framework.InGameTests/Mod` into `Mods/` (e.g. a directory junction) and launch the game with it enabled together with its dependencies and RimLLM Framework
-(add `cj.rimtalk`, `seohyeon.autotranslation`, `modcompatchecker.main` and `ow1r.scauto` to cover the compat hooks). RimTest Redux's **Run at startup**
-(on by default) runs the suites once loading finishes; results go to `Player.log` between `TESTING START` and `TESTING END`,
-and `[RimLLM.InGameTests] skipped:` lines count the preconditions that were absent.
+Only Release builds write the player's `Assemblies/`; Debug and NUnit builds use project-local `bin/` output. NUnit verifies the shipped .NET 10 asset targets and absence of legacy polyfills. The game supplies its BCL, including System.Text.Json, async streams, ValueTask and Channels. SDK packages use their normal compatible NuGet assets; packages without a `net10.0` asset may supply a compatible earlier .NET asset.
+
+### Native keyring integration checks
+
+Run pwsh -File Tests/NativeKeyring/run-linux.ps1 with Docker available. The launcher stages the actual security sources into ignored TestResults, then runs an isolated .NET 10/libsecret/D-Bus/GNOME Keyring container with no host secret mounts or external network at test time. It covers v3 roundtrip/reload, missing service, missing secret, reference-only persistence and concurrent processes. For a macOS machine with an unlocked login keychain, run dotnet run --project Tests/NativeKeyring/Probe.csproj; this uses the actual SecItem backend and removes its temporary item afterward. The helper stubs only game/logging boundaries, not cryptography or the native secret store.
+
+### C# conventions
+
+Source code uses stable C# 14 syntax: file-scoped namespaces, target-typed construction, exact-type collection expressions, using declarations and pattern matching where they preserve behavior. The repository .editorconfig records these choices for future work. Public SDK signatures, serialized data shapes and resource lifetimes remain unchanged. Streaming queue middleware uses an async iterator with EnumeratorCancellation and await foreach, so the compiler owns cancellation-token combination and enumerator disposal; the concurrency slot spans the entire enumeration, including pauses between updates. QueuedStreamingTests verifies lazy start, slot ownership across yields, disposal after early termination, and cancellation from either token when method and enumerator tokens differ. These changes improve maintainability; no performance gain is claimed without measurements.
+
+### In-game integration tests (SmashPhil DevTools)
+
+`Source/RimLLM Framework.InGameTests` is a development-only companion mod, outside the solution and excluded from player releases. Its non-static `MainMenu` fixtures cover startup settings/manager wiring, the dispatcher pump, type loading and debug-action reflection of shipped DLLs, installed compatibility patches, native tool/schema creation, and translation injection. NUnit remains the standalone unit-test runner.
+
+DevTools is embedded in the companion: both `DevTools.dll` and `RimLLM Framework.InGameTests.dll` load from its `Mod/Assemblies/`. It requires only Core, Harmony and RimLLM Framework. There is no separate DevTools packageId or Laboratory dependency. The checked-in SDK reference and MIT license live in `Source/Libs/DevTools`; override `DevToolsDll` to use another compatible local build.
+
+Save your progress and close RimWorld, then run with PowerShell 7:
+
+```powershell
+pwsh -File "Source/RimLLM Framework.InGameTests/launch-tests.ps1"
+pwsh -File "Source/RimLLM Framework.InGameTests/launch-tests.ps1" -Where "class == StartupTests"
+```
+
+The launcher builds Release and the test DLL, creates a development junction under `Mods/`, and starts the game with a fresh `TestResults/devtools/<timestamp>/Config/ModsConfig.xml` using `-savedatafolder`. It preserves the player's configuration and saves. A run lock prevents concurrent launchers from sharing the companion's log configuration. `-AdditionalMods` accepts extra packageIds to exercise installed compatibility targets; these mods must support 1.7 and have their own dependencies included. `-SkipBuild` is for already rebuilt assemblies.
+
+The underlying CLI uses `--pid GreenMushroom.RimLLMFramework.InGameTests --test --where "namespace == RimLLM_Framework.InGameTests" --exit`. Results are `Test.log`, `test-report.md`, `stdout.log` and `stderr.log` in the run directory; DevTools' log folder is explicitly set in the companion's generated `Configs/UnitTestConfig.xml`. Player.log contains additional startup diagnostics. The launcher requires case results and the current run's `Test runner finished. Result: Passed` marker; an exit code of zero alone is insufficient. Timeout, interruption and zero-case runs are failures to verify.
+
+With no compatibility target active, the two compatibility cases are marked **Skipped**. Partial target/method omissions and unloaded languages are recorded as `[RimLLM.InGameTests] skipped:` prerequisites, rather than additional executed test cases. Run separate mod/language combinations for that coverage. Do not include the test companion, DevTools DLL or generated development configuration in a player archive.

@@ -6,5 +6,5 @@ using System.Runtime.CompilerServices;
 [assembly: AssemblyVersion("1.0.0.0")]
 [assembly: AssemblyFileVersion("1.0.0.0")]
 [assembly: InternalsVisibleTo("RimLLM Framework.Tests")]
-// 遊戲內 RimTest Redux 整合測試（Source/RimLLM Framework.InGameTests，開發用、不出貨）。
+// 遊戲內 SmashPhil DevTools 整合測試（Source/RimLLM Framework.InGameTests，開發用、不出貨）。
 [assembly: InternalsVisibleTo("RimLLM Framework.InGameTests")]

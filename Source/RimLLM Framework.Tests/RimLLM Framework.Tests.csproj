@@ -1,23 +1,15 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net472</TargetFramework>
     <RootNamespace>RimLLM_Framework.Tests</RootNamespace>
     <AssemblyName>RimLLM Framework.Tests</AssemblyName>
-    <LangVersion>latest</LangVersion>
     <Deterministic>true</Deterministic>
-    <DefaultRimWorldManagedDir>C:\Program Files (x86)\Steam\steamapps\common\RimWorld\RimWorldWin64_Data\Managed</DefaultRimWorldManagedDir>
-    <RimWorldManagedDir Condition="'$(RimWorldManagedDir)' == '' and '$(RIMWORLD_MANAGED_DIR)' != ''">$(RIMWORLD_MANAGED_DIR)</RimWorldManagedDir>
-    <RimWorldManagedDir Condition="'$(RimWorldManagedDir)' == ''">$(DefaultRimWorldManagedDir)</RimWorldManagedDir>
     <NoWarn>$(NoWarn);SCME0001;NU1608</NoWarn>
-    <!-- 與主專案相同：RimTalk.dll 是 net48 組件，忽略 MSB3274 版本檢查。 -->
-    <ResolveAssemblyReferenceIgnoreTargetFrameworkAttributeVersionMismatch>true</ResolveAssemblyReferenceIgnoreTargetFrameworkAttributeVersionMismatch>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.10.1" />
     <PackageReference Include="NUnit" Version="4.6.1" />
     <PackageReference Include="NUnit3TestAdapter" Version="6.3.0" />
-    <PackageReference Include="Krafs.Rimworld.Ref" Version="1.6.4871" />
     <PackageReference Include="coverlet.collector" Version="10.0.1">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
@@ -28,40 +20,24 @@
     <ProjectReference Include="..\RimLLM Framework\RimLLM Framework.csproj" />
   </ItemGroup>
 
-  <!-- 建置後僅複製 RimWorld 與 UnityEngine 相關的實體 DLL 到測試輸出目錄，排除 mscorlib、System 等基礎類別庫，防止 CLR runtime 衝突 -->
-  <Target Name="CopyRimWorldAssemblies" AfterTargets="Build" Condition="Exists('$(RimWorldManagedDir)')">
-    <Message Text="====== Copying necessary RimWorld &amp; Unity DLLs to $(TargetDir) ======" Importance="high" />
-    <ItemGroup>
-      <RimWorldAssemblies Include="$(RimWorldManagedDir)\Assembly-CSharp*.dll" />
-      <RimWorldAssemblies Include="$(RimWorldManagedDir)\UnityEngine*.dll" />
-      <RimWorldAssemblies Include="$(RimWorldManagedDir)\Unity.*.dll" />
-      <RimWorldAssemblies Include="$(RimWorldManagedDir)\netstandard.dll" />
-    </ItemGroup>
-    <Copy SourceFiles="@(RimWorldAssemblies)" DestinationFolder="$(TargetDir)" SkipUnchangedFiles="true" />
-  </Target>
-
-  <Target Name="WarnMissingRimWorldAssemblies" AfterTargets="Build" Condition="!Exists('$(RimWorldManagedDir)')">
-    <Warning Text="RimWorld managed assembly folder not found: $(RimWorldManagedDir). Set RimWorldManagedDir or RIMWORLD_MANAGED_DIR before running integration-style tests." />
-  </Target>
+  <!-- 1.7 的遊戲組件與 Harmony 3.0：直接參考並複製到測試輸出，執行期才找得到。 -->
   <ItemGroup>
-    <!-- 讓測試也驗證 provider SDK 與 net472 載入依賴。 -->
-    <PackageReference Include="Microsoft.Extensions.AI" Version="10.10.0" />
-    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.10.1" />
-    <!-- 與主專案一致：測試必須跑在出貨的 netstandard2.0 版 Abstractions 上，而非 NuGet 自動挑的 net462 版。 -->
-    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.10.1" ExcludeAssets="compile;runtime" />
-    <Reference Include="Microsoft.Extensions.AI.Abstractions">
-      <HintPath>$(NuGetPackageRoot)microsoft.extensions.ai.abstractions\10.10.1\lib\netstandard2.0\Microsoft.Extensions.AI.Abstractions.dll</HintPath>
+    <Reference Include="0Harmony">
+      <HintPath>$(HarmonyDll)</HintPath>
+      <Private>true</Private>
     </Reference>
-    <PackageReference Include="OpenAI" Version="2.14.0" />
-    <!-- 與主專案一致：必須是 OpenAI 2.14.0 依賴的 1.15.0，RimWorld 無 binding redirect，高版會導致 typeref 解析失敗。 -->
-    <PackageReference Include="System.ClientModel" Version="1.15.0" />
-    <!-- 明確引用並以 alias 隔離 Microsoft.Bcl.AsyncInterfaces 的 IAsyncEnumerable<T>，
-         避免與 .NET Framework 4.8 mscorlib 內建型別產生 CS0433 歧義。 -->
-    <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" Version="10.0.12" Aliases="bclasync" />
-    <PackageReference Include="System.Threading.Tasks.Extensions" Version="4.6.3" Aliases="ste" />
-    <!-- 主專案以 ExcludeAssets="runtime" 參考 Harmony（遊戲執行期由 Harmony Mod 提供），不會帶進測試輸出；
-         型別載入防線測試會反射解析 Action<Harmony> 等欄位型別，因此這裡另外複製 0Harmony.dll。版本須與主專案一致。 -->
-    <PackageReference Include="Lib.Harmony" Version="2.4.1" />
+    <Reference Include="Assembly-CSharp">
+      <HintPath>$(RimWorldDir)Assembly-CSharp.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="UnityStubs">
+      <HintPath>$(RimWorldDir)UnityStubs.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="Waylith">
+      <HintPath>$(RimWorldDir)Waylith.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
     <!-- 相容層轉接器測試需要 RimTalk 的 Role / Payload 型別；主專案 Private=false 不會帶進來，這裡另外複製到測試輸出。 -->
     <Reference Include="RimTalk">
       <HintPath>..\Libs\RimTalk\RimTalk.dll</HintPath>

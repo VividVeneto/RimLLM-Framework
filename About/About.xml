@@ -3,9 +3,9 @@
   <name>RimLLM Framework</name>
   <author>綠菇</author>
   <packageId>GreenMushroom.RimLLMFramework</packageId>
-  <modVersion>2026.10.11.2</modVersion>
+  <modVersion>2026.10.18.3</modVersion>
   <supportedVersions>
-    <li>1.6</li>
+    <li>1.7</li>
   </supportedVersions>
   <description><![CDATA[RimLLM Framework — A unified LLM interface and core infrastructure framework for RimWorld.
 
@@ -14,7 +14,7 @@ This mod provides a stable and flexible foundation for managing API keys, model 
 <b>Key Features:</b>
 1. <b>Multi-Provider Support</b>: Native support for Google Gemini, OpenAI, DeepSeek, Groq, Grok (xAI), Z.ai, OpenRouter, Kimi, MiniMax, Qwen, NVIDIA, Player2, and local-compatible endpoints (OpenAI Compatible — LM Studio, Ollama, etc.).
 2. <b>Model Fallback</b>: Refactored into a pure model-level precise fallback chain. Players can configure a primary model and multiple exact fallback models; the framework automatically switches on timeout, rate-limit (429), or connection errors to keep LLM calls uninterrupted. Candidate order follows one of four routing strategies (chain priority, minimum latency, round-robin, or lowest cost), retries back off exponentially with jitter, and the circuit breaker cools down per provider <b>and</b> model so one rate-limited model does not take its healthy siblings with it.
-3. <b>AES-256 Encryption</b>: API keys are stored with AES-256 using a random storage key protected by the current OS user, reducing plaintext exposure risk. Legacy device-derived ciphertext is accepted only for migration; new writes use the protected key. This still does not prevent same-process attacks via reflection or memory reading. Caller-assembly verification has been removed: it could not stop a hostile in-process mod, and its first-come-wins ModId binding could lock out the legitimate owner at startup.
+3. <b>AES-256 Encryption</b>: API keys are stored with AES-256 using a random storage key protected by the current OS user, reducing plaintext exposure risk. Storage protection uses Windows DPAPI, macOS Keychain, or Linux Secret Service. Only v3 ciphertext is accepted; older formats are not supported. This still does not prevent same-process attacks via reflection or memory reading. Caller-assembly verification has been removed: it could not stop a hostile in-process mod, and its first-come-wins ModId binding could lock out the legitimate owner at startup.
 4. <b>Thread Safety &amp; Scribe Scheduling</b>: All dictionary operations are guarded with locks. RecordLog updates the in-memory log on the Unity main thread via RimLLMDispatcher, while telemetry file writes (AES + JSON + disk) run on a background single-writer with a 15-second throttle, preventing crashes or TPS spikes caused by background saves.
 5. <b>Reasoning Models &amp; Auto Effort</b>: Native support for modern reasoning and thinking models (Gemini 3.7 Flash/3.1 Pro Thinking, OpenAI GPT-5.6 Sol/5.5, DeepSeek-V4-Pro/Flash, Grok 4.6, Qwen3.8-Max, Kimi K3, GLM-5.3-Flash, etc.). The layer automatically extracts reasoning_content and thought blocks, wrapping them uniformly in &lt;think&gt;...&lt;/think&gt; tags. Reasoning effort is translated into each provider's own wire format, and a model that rejects the parameter is learned from the service response and skipped afterwards instead of failing.
 6. <b>Native Tool Calling (Function Calling)</b>: Fully compliant with Microsoft.Extensions.AI standards (AIFunction, ChatOptions.Tools, FunctionCallContent) across all providers over the shared OpenAI-compatible protocol, along with RimWorldFunctionInvoker (.AsMainThreadFunctionInvokingClient()) to safely dispatch tool execution onto the Unity main thread.

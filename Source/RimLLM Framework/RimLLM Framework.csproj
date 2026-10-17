@@ -1,6 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net472</TargetFramework>
     <!-- 官方 SDK 與 MEAI 相依 DLL 必須隨 Mod 輸出，才能在 RimWorld managed assembly 環境載入。 -->
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <AssemblyName>RimLLM Framework</AssemblyName>
@@ -10,13 +9,10 @@
     <DebugType Condition="'$(Configuration)' != 'Release'">portable</DebugType>
     <DebugSymbols Condition="'$(Configuration)' == 'Release'">false</DebugSymbols>
     <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>
-    <!-- 確保建置時不會自動在路徑後附加 net472/ 資料夾 -->
+    <!-- 確保建置時不會自動在路徑後附加 net10.0/ 資料夾 -->
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <!--
       只有 Release 會寫入實際出貨的 Assemblies/。
-      先前 OutputPath 是無條件的，導致 `dotnet test` 以 Debug 重建主專案時
-      會把出貨 DLL 蓋成未最佳化的 Debug 組建 —— 而「建置→測試→commit」的流程
-      讓測試永遠是最後一個寫入者，因此歷來出貨的都是 Debug。
       注意：改動程式碼後要讓遊戲載入到新版，必須跑 `dotnet build -c Release`。
     -->
     <OutputPath Condition="'$(Configuration)' == 'Release'">..\..\Assemblies\</OutputPath>
@@ -24,22 +20,14 @@
     <Deterministic>true</Deterministic>
     <!-- 避免與原本 Properties/AssemblyInfo.cs 產生屬性重複衝突 -->
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
-    <!-- 啟用 C# 8.0 語言版本，以支援非同步資料流 (IAsyncEnumerable) -->
-    <LangVersion>8.0</LangVersion>
+    <GenerateDependencyFile>false</GenerateDependencyFile>
     <!-- ChatCompletionOptions.Patch 為實驗性 API (SCME0001)，本專案刻意使用它以補救 wire 差異。
-         NU1608: 套件相依版本範圍與實際解析版本不一致時的警告（歷史上 MEAI.OpenAI 曾限定 OpenAI 上限）。
-         MEAI001: FailoverChatClient / RoutingContext / FailoverChatClientAttempt 被 Microsoft 標記為
-         「僅供評估之用，可能在未來更新中變更或移除」。備援路由建構在它們之上是刻意的取捨——
-         換得的是與 MEAI 一致的路由語意，代價是 MEAI 升版時這一層可能需要跟著改。
-         升級 Microsoft.Extensions.AI 前務必檢查 RimLLMFailoverChatClient 是否仍能編譯。 -->
+         NU1608: 套件相依版本範圍與實際解析版本不一致時的警告。
+         MEAI001: FailoverChatClient / RoutingContext / FailoverChatClientAttempt 被 Microsoft 標記為評估用途。
+         -->
     <NoWarn>$(NoWarn);SCME0001;NU1608;MEAI001</NoWarn>
     <!-- 直接 Reference 的組件預設會連 .xml 文件檔一起複製到 Assemblies/，出貨不需要。 -->
     <AllowedReferenceRelatedFileExtensions>.pdb</AllowedReferenceRelatedFileExtensions>
-    <!--
-      RimTalk.dll 以 net48 建置，而本專案是 net472；MSBuild 預設拒絕解析「比目標更高」的參考 (MSB3274)。
-      兩者在遊戲內跑的是同一個 Mono 執行環境，這個版本差異沒有實際意義，因此忽略。
-    -->
-    <ResolveAssemblyReferenceIgnoreTargetFrameworkAttributeVersionMismatch>true</ResolveAssemblyReferenceIgnoreTargetFrameworkAttributeVersionMismatch>
     <Authors>mushroomTW</Authors>
     <!-- SonarQube / Coverlet 覆蓋率排除非邏輯核心的 RimWorld UI 繪製、Mod 進入點與需要遊戲執行期的 Harmony 掛載 -->
     <SonarQubeCoverageExclusions>**/Mod/UI/**;**/Mod/RimLLMFrameworkMod.cs;**/Compat/RimLLMCompatBootstrap.cs;**/Compat/RimTalk/RimTalkCompatPatch.cs;**/Compat/AutoTranslation/AutoTranslationCompatPatch.cs;**/Compat/ModCompatChecker/ModCompatCheckerCompatPatch.cs</SonarQubeCoverageExclusions>
@@ -51,67 +39,34 @@
     </SonarQubeSetting>
   </ItemGroup>
 
+  <!-- 1.7 本機遊戲組件與 Harmony 3.0：直接參考遊戲根目錄的組件，Private=false 不隨 Mod 出貨 -->
   <ItemGroup>
-    <PackageReference Include="Krafs.Rimworld.Ref" Version="1.6.4871" />
+    <Reference Include="Assembly-CSharp">
+      <HintPath>$(RimWorldDir)Assembly-CSharp.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityStubs">
+      <HintPath>$(RimWorldDir)UnityStubs.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Waylith">
+      <HintPath>$(RimWorldDir)Waylith.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(HarmonyDll)</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.12" />
     <PackageReference Include="Markdig" Version="1.4.0" />
-    <!--
-      框架唯一的 JSON 引擎。版本刻意釘在 MEAI 已經帶進來的 10.0.12：
-      與 Caching.Memory 的做法相同，RimWorld 共用 AppDomain，組件識別必須與
-      出貨 DLL 一致，浮動只會製造衝突。
-    -->
-    <PackageReference Include="System.Text.Json" Version="10.0.12" />
-    <!--
-      AI 抽象層與 provider SDK 版本刻意固定。Mod 維持 net472，這些套件必須
-      持續提供 netstandard2.0 資產，才能在 RimWorld Mono 執行環境中使用。
-    -->
     <PackageReference Include="Microsoft.Extensions.AI" Version="10.10.0" />
     <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.10.1" />
-    <!--
-      Abstractions 刻意出貨 netstandard2.0 資產而非 NuGet 依 net472 自動挑選的 net462 資產。
-      net462 版把 [EmailAddress]、[Range] 等驗證屬性讀進 schema，該段程式碼參考框架內建的
-      System.ComponentModel.DataAnnotations —— RimWorld 的 Unity Mono 沒有出貨這顆 DLL，
-      AIFunctionFactory.Create / AIJsonUtilities.CreateJsonSchema 在遊戲內會擲出 TypeLoadException
-      （實機探針證實，連無參數的工具也炸）。netstandard2.0 版整段以 #if NET || NETFRAMEWORK 排除，
-      相依只剩 System.Text.Json；組件版本同為 10.10.0.0，MEAI 與 MEAI.OpenAI 的 net462 資產綁定不受影響。
-      ProviderSdkIntegrationTests.ShippedAbstractionsHasNoDataAnnotationsDependency 鎖住此選擇。
-    -->
-    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.10.1" ExcludeAssets="compile;runtime" />
-    <Reference Include="Microsoft.Extensions.AI.Abstractions">
-      <HintPath>$(NuGetPackageRoot)microsoft.extensions.ai.abstractions\10.10.1\lib\netstandard2.0\Microsoft.Extensions.AI.Abstractions.dll</HintPath>
-    </Reference>
-    <!--
-      OpenAI SDK 2.14.0（MEAI.OpenAI 10.10.1 要求的版本）。
-      2.13.0 起內部生成的 ChatCompletionOptions.PropagateSet 存在未做 null 檢查的 bug，
-      本專案透過 OpenAIPatchExtensions.DisablePatchPropagators 清除傳播委派，
-      安全恢復底層 JsonPatch 寫入行為。
-    -->
     <PackageReference Include="OpenAI" Version="2.14.0" />
-    <!--
-      必須與 OpenAI 2.14.0 依賴的 1.15.0 完全一致。
-      RimWorld 共用 AppDomain 沒有 binding redirect：若出貨 1.16.0，
-      OpenAI.dll 內對 System.ClientModel 1.15.0.0 的 typeref（例如
-      AsyncStreamingClientResult`1）會解析失敗，觸發 ReflectionTypeLoadException，
-      連帶讓掃描全程式集的 Mod（如 MeleeAnim）在啟動時洗版報錯。
-    -->
     <PackageReference Include="System.ClientModel" Version="1.15.0" />
 
-    <!--
-      升級 System.Threading.Tasks.Extensions 至 4.6.3，並以 alias 隔離其 ValueTask，
-      避免與 Krafs.Rimworld.Ref 附帶的 RimWorld Mono mscorlib（同樣定義 ValueTask）衝突（CS0433）。
-    -->
-    <PackageReference Include="System.Threading.Tasks.Extensions" Version="4.6.3" Aliases="ste" />
-    <!--
-      以 alias 隔離 Microsoft.Bcl.AsyncInterfaces 的 IAsyncEnumerable<T>，避免與
-      mscorlib (net472) 提供的同名介面衝突 (CS0433)。測試專案亦採相同做法。
-    -->
-    <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" Version="10.0.12" Aliases="bclasync" />
-
-    <!--
-      第三方相容層（Compat/）的 Harmony 攔截。0Harmony.dll 由 brrainz.harmony Mod 於執行期提供
-      （About.xml 列為必要相依），這裡只做編譯期參考、不隨包出貨，避免與其他 Mod 重複載入。
-      版本對齊 Harmony Mod 的 Current/Assemblies/0Harmony.dll（2.4.1），不要高於玩家執行期實際載入的版本。
-    -->
-    <PackageReference Include="Lib.Harmony" Version="2.4.1" ExcludeAssets="runtime" PrivateAssets="all" />
     <!--
       RimTalk 編譯期參考（Source/Libs/RimTalk/README.md）。Private=false 不出貨；
       執行期綁定的是玩家實際安裝的 RimTalk.dll。
@@ -137,11 +92,4 @@
       <Private>false</Private>
     </Reference>
   </ItemGroup>
-
-  <Target Name="CopyRimWorldMonoRuntimeDependencies" AfterTargets="Build">
-    <ItemGroup>
-      <RimWorldMonoRuntimeDependency Include="$(NuGetPackageRoot)\system.valuetuple\4.6.2\lib\net47\System.ValueTuple.dll" />
-    </ItemGroup>
-    <Copy SourceFiles="@(RimWorldMonoRuntimeDependency)" DestinationFolder="$(OutputPath)" SkipUnchangedFiles="true" />
-  </Target>
 </Project>

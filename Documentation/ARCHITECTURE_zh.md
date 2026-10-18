@@ -9,11 +9,13 @@
 * 框架對外暴露標準的 Microsoft.Extensions.AI 介面。呼叫端只面對 `IChatClient` 或 `IEmbeddingGenerator`，完全不需要知道實際由哪個供應商或模型處理 —— 調度與 Fallback 輪替由 `RimLLMManager` 負責。
 * `CreateChatClient` 回傳的是一疊 MEAI `DelegatingChatClient` 中介層——思考強度正規化、防濫用節流、預算保護、優先權佇列——最內層是沿 Fallback 鏈路由的 `FailoverChatClient`。每一層都是 `internal`。使用端會碰到的框架專屬型別只有 `RimLLMProvider`、`RimLLMChatOptions`、`RimLLMException` 與 `LLMError`，其餘跨越邊界的全是 MEAI 型別。
 * `modId` 是純標籤，不是憑證。它是每個 Mod 防濫用節流與遙測歸屬的鍵，不需要任何註冊呼叫。
+* 對話與 Embedding 門面在送出計費請求前檢查同一份用量帳本，HardBlock、WarnOnly 與每日重置在兩條路徑上的意義相同。對話訊息在守衛入口只物化一次，判斷工具續輪時不會先耗盡只能列舉一次的序列。
 
 ### 2. Unity 主執行緒派送器（`RimLLMDispatcher`）
 
 * 網路請求在背景執行緒池上非同步執行，但多數 Unity API 與 RimWorld 邏輯並非執行緒安全 —— 從背景執行緒呼叫會造成崩潰或 TPS 掉幀。
 * `RimLLMDispatcher` 是 MonoBehaviour 單例，以 `ConcurrentQueue` 收集背景執行緒的回呼，並在 Unity 每幀的 `Update` 中派送回主執行緒。
+* 排隊中的工具會在叫用前檢查取消，等待端可在工具尚未出列時取消等待；工具開始後則由工具本身配合取消。對話測試回呼攜帶請求世代，並在執行回呼時檢查；停止或清空會先使舊更新失效，避免歷史索引被新請求重用後遭到覆寫。
 
 ### 3. 串流橋接（`Channel<T>`）
 
@@ -22,6 +24,7 @@
 * `IAsyncEnumerable` 與 `ValueTask` 直接使用 .NET 10 的標準型別，不再使用 BCL 相容套件或 extern alias。
 * 一層薄包裝會解開 `ChannelClosedException`，讓生產端的失敗以原始的 `RimLLMException` 呈現給呼叫端。
 * Executor 的 fallback token 估算逐塊累加成計數，不暫存串流文字，異常大的串流不會讓記憶體無限成長。
+* 串流已有輸出或回報用量時，正常與異常結束都只結算一次。取消、閒置逾時及斷線會保留原本錯誤語意，同時保留已觀察到的消耗；尚未輸出或回報用量就失敗的串流，不會捏造一筆成功用量。
 
 ### 4. 統一的 HTTP 錯誤對照（`LLMErrorMapper`）
 
@@ -32,16 +35,16 @@
 ### 5. 容錯的結構化輸出（structured output 與 JSON repair）
 
 * 開發者經常需要模型回傳特定的 JSON 結構。
-* 內建供應商優先使用官方 SDK 的原生結構化輸出，經 `IChatClient` 的 JSON Schema response format 送出（Gemini 經其 OpenAI 相容端點同樣適用）。框架會先驗證必要成員與 null 狀態，再反序列化為目標 C# 物件。
+* 內建供應商優先使用官方 SDK 的原生結構化輸出，經 `IChatClient` 的 JSON Schema response format 送出（Gemini 經其 OpenAI 相容端點同樣適用）。框架依序列化契約產生的 Schema 形狀檢查 JSON 必填成員是否存在與可空性，包含字典的值，不以反序列化後的 CLR 預設值推斷完整性；忽略或未參與契約的成員不視為必要輸出。
 * schema 本身只有一種 OpenAI 相容方言 —— 所有成員都列入 `required`，選填性以 `["integer","null"]` 聯集表達。詳見[架構設計 §6](#6-官方-sdk-與供應商職責)。
-* `RepairJson` 回退機制僅在供應商不支援原生 Schema、服務拒絕 Schema，或模型仍回傳格式錯誤內容時啟用。它處理 Markdown 圍籬（如 ` ```json `）、未閉合括號、尾隨逗號與 JSON 區塊擷取。
+* `RepairJson` 回退機制僅在供應商不支援原生 Schema、服務拒絕 Schema，或模型仍回傳格式錯誤內容時啟用。它處理 Markdown 圍籬（如 ` ```json `）、未閉合括號、尾隨逗號與 JSON 區塊擷取。修復時區分 JSON 語法與引號內的字串，保留字串中的逗號、括號及 `<think>…</think>` 原文。
 
 ### 6. 官方 SDK 與供應商職責
 
 * **所有供應商共用一套 SDK。** 內建供應商全都走 `OpenAI` SDK `2.14.0` 與 Microsoft.Extensions.AI `10.10.0` 的 `IChatClient`，沒有直接打 HTTP 的對話路徑，也沒有第二套 SDK。Gemini 走 Google 官方的 OpenAI 相容端點。共用層只依賴 `IChatClient`、`LLMProviderCapabilities` 與 `ILLMProvider`。
 * **僅支援 RimWorld 1.7／.NET 10。** 三個專案統一使用 `net10.0`，SDK 與 MEAI 透過正常 NuGet 資產選擇載入。
 * **MEAI.Abstractions 使用 .NET 10 資產。** 不再強制 netstandard 資產或隨包附帶舊 BCL；`ShippedAssembliesTargetNet10` 驗證正式產物。
-* **結構化輸出的 schema** 由 `System.Text.Json` 的 `JsonSchemaExporter` 產生，再由 `RimLLMSchemaBuilder` 正規化成每家供應商都接受的子集：`$ref` 展開成內嵌（循環在 CLR 型別層級截斷）、巢狀最多 5 層（OpenAI strict 模式的上限；總共 100 個屬性的上限尚未檢查）、所有成員都列入 `required`，選填性以 `["type","null"]` 聯集表達，並保留 `[Description]`。
+* **結構化輸出的 schema** 由 `System.Text.Json` 的 `JsonSchemaExporter` 產生，再由 `RimLLMSchemaBuilder` 正規化成每家供應商都接受的子集：`$ref` 展開成內嵌（循環在 CLR 型別層級截斷）、巢狀最多 5 層（OpenAI strict 模式的上限；總共 100 個屬性的上限尚未檢查）、所有成員都列入 `required`，選填性以 `["type","null"]` 聯集表達，並保留 `[Description]`。Nullable 值型別作為集合元素或字典值時，也會保留相同的可空聯集。
 * **結構化輸出型別的規則**：schema 產生與反序列化共用同一份 System.Text.Json 契約，因此不要在這些型別上掛自訂 `JsonConverter`。從 Newtonsoft 遷移的 Mod 必須把 `[JsonProperty("x")]` 改成 `[JsonPropertyName("x")]`，並改用 System.Text.Json 的 `[JsonIgnore]`；舊屬性會被無聲忽略。
 
 ---
@@ -52,7 +55,7 @@
 
 * **API 金鑰加密使用 OS 每使用者保護金鑰。** 新資料使用 AES-256 與隨機儲存金鑰，該金鑰由目前使用者的 OS 保護機制包裝。僅支援 `v3:` 密文，不再保留固定種子或裝置衍生的舊格式解密路徑。這能防止其他使用者或其他機器直接解密複製的設定，但**無法**防禦以相同使用者身分或在同一 RimWorld 行程內執行的程式碼（包含其他 Mod），因為框架必須使用金鑰才能提供請求服務。
 * **`modId` 是歸屬標籤，不是身份驗證。** 每 Mod 節流仍用來維持合作型 Mod 之間的公平性；另外加上「每 Mod 視窗上限十倍」的共享安全上限，每個實際供應商呼叫（包含工具迴圈續輪）都會計入，避免輪換標籤建立無限供應商請求。同一個 RimWorld 行程內的 Mod 仍沒有隔離，請勿把 SDK 當成惡意 Mod 沙盒。
-* **金鑰不會進入 URL 或日誌。** 所有供應商都以 HTTP Header 傳遞金鑰；日誌輸出一律經過 `SanitizeForLog` 並截斷長度，診斷匯出中的裝置識別碼也會遮罩。
+* **金鑰不會進入請求 URL。** 所有供應商都以 HTTP Header 傳遞金鑰。診斷預覽經過 `SanitizeForLog` 並限制長度，涵蓋已知金鑰前綴，以及 Header、URL 和帶引號 JSON 欄位中的金鑰／授權賦值；這是文字遮罩，不能保證辨識第三方文字裡所有任意形式的秘密。診斷匯出中的裝置識別碼也會遮罩。
 * **重新整理模型清單時也會連到 models.dev。** 除了供應商本身，重新整理時還會下載公開的 `https://models.dev/api.json` 來補齊上下文上限。這是一般的 GET 請求，不帶 API 金鑰或任何玩家資料；下載失敗時重新整理照常成功，只記一筆警告。
 * **供應商輸出視為不受信任的 UI 輸入。** ChatTest 只保留框架自行產生的灰色思考色彩標籤；供應商回應中的 raw HTML 標籤會以文字顯示，再交給 Markdown/Unity IMGUI。
 
@@ -70,6 +73,8 @@ Linux 需要 `libsecret-1.so.0`、工作階段 D-Bus 與已解鎖的 Secret Serv
 ## 🧪 單元測試與驗證
 
 專案在 `Source/RimLLM Framework.Tests`（與主專案並列的獨立專案）附有完整的單元測試套件，涵蓋 AES 加解密、模型 Fallback、JSON Schema 產生（正規化）與修復、HTTP 錯誤對照、`Retry-After` 解析、`ChatOptions` 複製、串流重試與預算控制。
+
+審查回歸測試另涵蓋 Embedding 超額阻擋與呼叫端取消、部分串流結算、較長的 `Retry-After`、能力查詢不影響 RoundRobin 輪替、一次性訊息序列、工具排隊取消、過期聊天回呼、帶引號的日誌秘密、JSON 必填成員、字典值及 Nullable 集合 Schema。HTTP 行為以假傳輸測試，不需呼叫付費供應商。
 
 ### 建置與執行環境
 
@@ -92,7 +97,7 @@ dotnet build "Source/RimLLM Framework.InGameTests/RimLLM Framework.InGameTests.c
 
 ### C# 撰寫慣例
 
-原始碼採用 C# 14 支援的穩定寫法：檔案範圍 namespace、目標型別建構、精確型別匹配的集合運算式、using 宣告與模式比對，並由 .editorconfig 保存慣例，供後續開發沿用。公開 SDK 簽章、序列化資料形狀與資源生命週期維持一致。串流佇列中介層使用帶 EnumeratorCancellation 的 async iterator 與 await foreach，由編譯器管理取消 token 合併及列舉器釋放；並行名額橫跨整段列舉，包含兩次 update 間的等待。QueuedStreamingTests 驗證延遲啟動、yield 期間持有名額、提早停止後釋放資源，以及方法與列舉端 token 不同時任一端均可取消。這些修改用於改善維護性，未量測前不宣稱效能提升。
+原始碼採用 C# 14 支援的穩定寫法：檔案範圍 namespace、目標型別建構、精確型別匹配的集合運算式、using 宣告與模式比對，並由 .editorconfig 保存慣例，供後續開發沿用。既有公開 SDK 簽章與序列化資料形狀維持相容；可取消的 Dispatcher 以新增多載提供，保留原簽章。串流佇列中介層使用帶 EnumeratorCancellation 的 async iterator 與 await foreach，由編譯器管理取消 token 合併及列舉器釋放；並行名額橫跨整段列舉，包含兩次 update 間的等待。QueuedStreamingTests 驗證延遲啟動、yield 期間持有名額、提早停止後釋放資源，以及方法與列舉端 token 不同時任一端均可取消。這些修改用於改善維護性，未量測前不宣稱效能提升。
 
 ### 遊戲內整合測試（SmashPhil DevTools）
 

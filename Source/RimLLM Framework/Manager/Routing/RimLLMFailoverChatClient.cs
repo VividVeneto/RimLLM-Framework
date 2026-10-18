@@ -207,7 +207,7 @@ internal sealed class RimLLMFailoverChatClient : FailoverChatClient
             }
             if (delay > 0f)
             {
-                await Task.Delay(TimeSpan.FromSeconds(delay), cancellationToken).ConfigureAwait(false);
+                await DelayWithCancellationAsync(delay, cancellationToken).ConfigureAwait(false);
             }
 
             state.AttemptOnCurrent++;
@@ -237,6 +237,20 @@ internal sealed class RimLLMFailoverChatClient : FailoverChatClient
 
         state.Index++;
         state.AttemptOnCurrent = 0;
+    }
+
+    private static async Task DelayWithCancellationAsync(float delaySeconds, CancellationToken cancellationToken)
+    {
+        // Mono 的 Task.Delay 上限可能只有 int.MaxValue 毫秒；固定分段也避免先轉換超長 TimeSpan。
+        const double maxSliceSeconds = 20d * 24d * 60d * 60d;
+        double remainingSeconds = delaySeconds;
+        while (remainingSeconds > 0d)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            double sliceSeconds = Math.Min(remainingSeconds, maxSliceSeconds);
+            await Task.Delay(TimeSpan.FromSeconds(sliceSeconds), cancellationToken).ConfigureAwait(false);
+            remainingSeconds -= sliceSeconds;
+        }
     }
 
     /// <summary>

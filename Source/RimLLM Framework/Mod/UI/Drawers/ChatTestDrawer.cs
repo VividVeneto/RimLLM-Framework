@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.AI;
 using RimLLM_Framework.Core;
@@ -35,6 +36,8 @@ public static class ChatTestDrawer
 
     /// <summary>目前進行中請求的取消來源，供「清空」按鈕中止長時間回應。</summary>
     private static System.Threading.CancellationTokenSource chatCts;
+    // 取消或清除時遞增；回呼在主執行緒真正執行時才檢查，避免舊索引寫入新歷史。
+    private static long chatRequestGeneration;
 
     /// <summary>
     /// 串流中重新渲染畫面的最短間隔。50ms 對眼睛已是連續更新，
@@ -57,8 +60,10 @@ public static class ChatTestDrawer
     /// </summary>
     private static void CancelActiveChatRequest()
     {
+        Interlocked.Increment(ref chatRequestGeneration);
         var cts = chatCts;
         chatCts = null;
+        chatLoading = false;
         if (cts == null) return;
 
 #pragma warning disable S108, S2486 // reason: 取消/釋放已釋放的 CTS 在 Unity 主線程屬預期競爭，刻意忽略不影響主流程
@@ -66,12 +71,17 @@ public static class ChatTestDrawer
         catch
         { // 刻意忽略：CTS 可能已取消或已釋放，不影響主流程
         }
-        try { cts.Dispose(); }
-        catch
-        { // 刻意忽略：重複釋放屬預期競爭，不影響主流程
-        }
+        // CTS 由擁有它的背景請求在 finally 釋放，避免請求尚未啟動就取不到 Token。
 #pragma warning restore S108, S2486
-        chatLoading = false;
+    }
+
+    private static void EnqueueChatUpdate(long requestGeneration, Action update)
+    {
+        RimLLMDispatcher.EnqueueOnMainThread(() =>
+        {
+            if (requestGeneration != Interlocked.Read(ref chatRequestGeneration)) return;
+            update();
+        });
     }
 
     /// <summary>中繼資料標記的前後綴，用於在持久化歷史中保存應答模型、耗時與 Token 數。</summary>
@@ -142,32 +152,45 @@ public static class ChatTestDrawer
     }
 
     /// <summary>
-    /// 於主線程更新 AI 回覆佔位項目。索引失效（歷史已被清空）時只略過寫入，其餘收尾照常執行。
+    /// 於主線程更新本輪 AI 佔位項目；已取消、歷史重置或索引失效時略過整個回呼。
     /// </summary>
     /// <param name="persist">是否一併寫回遙測並解除載入狀態（串流結束時使用）。</param>
     /// <param name="scrollToBottom">是否把對話框捲到底。</param>
-    private static void UpdateAiHistoryEntry(int index, string reply, ChatEntryMeta meta = null, bool persist = false, bool scrollToBottom = true)
+    private static void UpdateAiHistoryEntry(long requestGeneration, int index, string reply, ChatEntryMeta meta = null, bool persist = false, bool scrollToBottom = true)
     {
-        RimLLMDispatcher.EnqueueOnMainThread(() =>
+        EnqueueChatUpdate(requestGeneration, () =>
         {
-            if (index < chatHistory.Count)
+            if (index < 0 || index >= chatHistory.Count) return;
+            string entry = EntryPrefix(ChatAiTag) + reply;
+            if (meta != null)
             {
-                string entry = EntryPrefix(ChatAiTag) + reply;
-                if (meta != null)
-                {
-                    entry += MetaPrefix + meta.Serialize() + MetaSuffix;
-                }
-                chatHistory[index] = entry;
+                entry += MetaPrefix + meta.Serialize() + MetaSuffix;
             }
+            chatHistory[index] = entry;
             if (persist)
             {
                 PersistChatHistory();
                 chatLoading = false;
+                chatCts = null;
             }
             if (scrollToBottom)
             {
                 chatScrollPosition.y = 999999f;
             }
+        });
+    }
+
+    private static void UpdateChatError(long requestGeneration, int index, string message)
+    {
+        EnqueueChatUpdate(requestGeneration, () =>
+        {
+            if (index < 0 || index >= chatHistory.Count) return;
+            chatHistory[index] = EntryPrefix("RimLLM_ChatAiError") +
+                "<color=#ef4444>" + message + "</color>";
+            PersistChatHistory();
+            chatLoading = false;
+            chatCts = null;
+            chatScrollPosition.y = 999999f;
         });
     }
 
@@ -377,6 +400,7 @@ public static class ChatTestDrawer
             if (Widgets.ButtonText(sendBtnRect, "RimLLM_ChatStop".Translate()))
             {
                 CancelActiveChatRequest();
+                PersistChatHistory();
             }
             GUI.color = origColor;
         }
@@ -389,6 +413,7 @@ public static class ChatTestDrawer
             {
                 // 先中止前一輪尚未完成的請求（此呼叫會把 chatLoading 歸零），再開始新一輪。
                 CancelActiveChatRequest();
+                long requestGeneration = Interlocked.Read(ref chatRequestGeneration);
 
                 string userPrompt = chatInput.Trim();
                 string pinnedModel = chatModelId;
@@ -414,12 +439,13 @@ public static class ChatTestDrawer
 
                 var requestCts = new System.Threading.CancellationTokenSource();
                 chatCts = requestCts;
+                CancellationToken requestToken = requestCts.Token;
 
                 Task.Run(async () =>
                 {
                     try
                     {
-                        var client = RimLLMProvider.CreateChatClient(ServiceConsumerList.DebugChatModId);
+                        using var client = RimLLMProvider.CreateChatClient(ServiceConsumerList.DebugChatModId);
                         var messages = new List<ChatMessage> { new(ChatRole.User, userPrompt) };
                         var options = new RimLLMChatOptions
                         {
@@ -440,7 +466,7 @@ public static class ChatTestDrawer
                         int totalTokens = 0;
                         bool hasExactTokens = false;
 
-                        var enumerator = client.GetStreamingResponseAsync(messages, options, requestCts.Token).GetAsyncEnumerator();
+                        var enumerator = client.GetStreamingResponseAsync(messages, options, requestToken).GetAsyncEnumerator();
                         try
                         {
                             while (await enumerator.MoveNextAsync().ConfigureAwait(false))
@@ -571,34 +597,28 @@ public static class ChatTestDrawer
                                     CompletionTokens = completionTokens,
                                     IsEstimatedTokens = !hasExactTokens
                                 };
-                                UpdateAiHistoryEntry(aiHistoryIndex, localReply, meta: liveMeta);
+                                UpdateAiHistoryEntry(requestGeneration, aiHistoryIndex, localReply, meta: liveMeta);
                             }
                         }
 
                         string formattedFinal = RenderReply(fullReply);
-                        UpdateAiHistoryEntry(aiHistoryIndex, formattedFinal, meta: finalMeta, persist: true);
+                        UpdateAiHistoryEntry(requestGeneration, aiHistoryIndex, formattedFinal, meta: finalMeta, persist: true);
+                    }
+                    catch (OperationCanceledException) when (requestToken.IsCancellationRequested)
+                    {
+                        // 使用者停止是正常收尾；主執行緒已保留當時可見內容，不新增錯誤訊息。
                     }
                     catch (Exception ex)
                     {
                         // 排程中的尾端渲染不得在錯誤訊息寫入後又把它蓋掉。
                         lock (replyLock) { streamCompleted = true; }
 
-                        string safeError = EntryPrefix("RimLLM_ChatAiError") +
-                            "<color=#ef4444>" + RimLLMLog.SanitizeForLog(ex.Message, 240) + "</color>";
-                        RimLLMDispatcher.EnqueueOnMainThread(() =>
-                        {
-                            if (aiHistoryIndex < chatHistory.Count)
-                            {
-                                chatHistory[aiHistoryIndex] = safeError;
-                            }
-                            else
-                            {
-                                chatHistory.Add(safeError);
-                            }
-                            PersistChatHistory();
-                            chatLoading = false;
-                            chatScrollPosition.y = 999999f;
-                        });
+                        UpdateChatError(requestGeneration, aiHistoryIndex, RimLLMLog.SanitizeForLog(ex.Message, 240));
+                    }
+                    finally
+                    {
+                        lock (replyLock) { streamCompleted = true; }
+                        requestCts.Dispose();
                     }
                 });
             }

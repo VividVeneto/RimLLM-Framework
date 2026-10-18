@@ -75,14 +75,54 @@ public class RimLLMDispatcher : MonoBehaviour
     /// </summary>
     public static System.Threading.Tasks.Task<T> EnqueueOnMainThreadAsync<T>(Func<System.Threading.Tasks.Task<T>> func)
     {
+        return EnqueueOnMainThreadAsync(func, CancellationToken.None);
+    }
+
+    /// <summary>
+    /// 將非同步 Func 排入佇列；尚未派送時取消會取消等待並略過委派，已開始的委派則自行處理取消。
+    /// </summary>
+    public static System.Threading.Tasks.Task<T> EnqueueOnMainThreadAsync<T>(
+        Func<System.Threading.Tasks.Task<T>> func,
+        CancellationToken cancellationToken)
+    {
         if (func == null) throw new ArgumentNullException(nameof(func));
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return System.Threading.Tasks.Task.FromCanceled<T>(cancellationToken);
+        }
 
         var tcs = new System.Threading.Tasks.TaskCompletionSource<T>(System.Threading.Tasks.TaskCreationOptions.RunContinuationsAsynchronously);
+        int state = 0; // 0 = 排隊中、1 = 已派送、2 = 派送前取消
+        CancellationTokenRegistration registration = default;
+        if (cancellationToken.CanBeCanceled)
+        {
+            registration = cancellationToken.Register(() =>
+            {
+                if (Interlocked.CompareExchange(ref state, 2, 0) == 0)
+                {
+                    tcs.TrySetCanceled(cancellationToken);
+                    registration.Dispose();
+                }
+            });
+        }
+
+        // Register 可能在 token 已取消時同步執行 callback。
+        if (Volatile.Read(ref state) == 2)
+        {
+            registration.Dispose();
+            return tcs.Task;
+        }
 
         // 內層刻意不加 ConfigureAwait(false)：本委派由 Update 在主線程上啟動，
         // 保留 SynchronizationContext 才能讓 func 的續行回到主線程。
         EnqueueWaitable(async () =>
         {
+            if (Interlocked.CompareExchange(ref state, 1, 0) != 0)
+            {
+                registration.Dispose();
+                return;
+            }
+
             try
             {
                 T result = await func();
@@ -96,7 +136,11 @@ public class RimLLMDispatcher : MonoBehaviour
             {
                 tcs.TrySetException(ex);
             }
-        }, tcs);
+            finally
+            {
+                registration.Dispose();
+            }
+        }, tcs, () => registration.Dispose());
 
         return tcs.Task;
     }
@@ -133,12 +177,19 @@ public class RimLLMDispatcher : MonoBehaviour
     /// 排入一個「有人在等結果」的委派。與 <see cref="EnqueueOnMainThread"/> 的差別在於：
     /// 佇列溢位而被丟棄時會讓對應的 <paramref name="tcs"/> 失敗，避免等待端永遠掛住。
     /// </summary>
-    private static void EnqueueWaitable<T>(Action action, System.Threading.Tasks.TaskCompletionSource<T> tcs)
+    private static void EnqueueWaitable<T>(
+        Action action,
+        System.Threading.Tasks.TaskCompletionSource<T> tcs,
+        Action onDropped = null)
     {
         if (_hasPump)
         {
-            TryEnqueueBounded(new QueuedAction(action, () => tcs.TrySetException(
-                new InvalidOperationException($"[RimLLM] 主線程佇列已滿（上限 {MaxQueuedActions}），待執行的主線程工作被丟棄。"))));
+            TryEnqueueBounded(new QueuedAction(action, () =>
+            {
+                tcs.TrySetException(
+                    new InvalidOperationException($"[RimLLM] 主線程佇列已滿（上限 {MaxQueuedActions}），待執行的主線程工作被丟棄。"));
+                onDropped?.Invoke();
+            }));
             return;
         }
 

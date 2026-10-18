@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using RimLLM_Framework.Core;
 using RimLLM_Framework.Providers;
@@ -21,6 +22,7 @@ public class RimLLMFallbackPipeline
     private readonly RimLLMUsageTracker _usageTracker;
     private readonly Func<string, ILLMProvider> _providerResolver;
     private readonly Func<string, bool> _isProviderEnabledFunc;
+    private int _roundRobinIndex;
 
     internal struct ResolvedCandidate
     {
@@ -69,7 +71,13 @@ public class RimLLMFallbackPipeline
     /// 非拋版候選解析，供每秒輪詢的接管判定使用，避免離線時每秒配置例外與堆疊。
     /// 語意與 <see cref="ResolveCandidates"/> 完全一致，僅以傳回值取代擲出。
     /// </summary>
-    internal bool TryResolveCandidates(string preferredModelId, string minFallbackLevel, bool includeCoolingDown, out List<ResolvedCandidate> candidates, out string failureReason)
+    internal bool TryResolveCandidates(
+        string preferredModelId,
+        string minFallbackLevel,
+        bool includeCoolingDown,
+        out List<ResolvedCandidate> candidates,
+        out string failureReason,
+        bool advanceRoundRobin = true)
     {
         var fallbackChain = GetFallbackChainSnapshot();
         if (fallbackChain == null || fallbackChain.Count == 0)
@@ -137,8 +145,8 @@ public class RimLLMFallbackPipeline
                 activeCandidates.AddRange(byLatency);
                 break;
 
-            case 2: // RoundRobin / Random (隨機輪詢負載均衡)
-                ShuffleCandidates(activeCandidates);
+            case 2: // RoundRobin (輪替負載均衡)
+                RotateCandidates(activeCandidates, advanceRoundRobin);
                 break;
 
             case 3: // LowestCost (成本優先)
@@ -182,7 +190,7 @@ public class RimLLMFallbackPipeline
     /// 以設定的重試間隔為基準做指數退避（第 n 次重試等待 delay × 2ⁿ）並加上 ±20% 抖動：
     /// 限流後以固定間隔連打只會再次一起撞牆，把重試額度白白耗光。
     /// 伺服器若透過 Retry-After 指定了更長的等待時間則以其為準；
-    /// 整體上限 60 秒，免得玩家在遊戲中枯等。
+    /// 本地指數退避上限為 60 秒；伺服器要求更長時間時仍遵從 Retry-After。
     /// </summary>
     internal static float ResolveRetryDelay(float baseDelay, int attempt, Exception ex)
     {
@@ -195,24 +203,31 @@ public class RimLLMFallbackPipeline
             delay *= 1f + ((float)NextRandomDouble() * 0.4f - 0.2f);
         }
 
+        delay = Math.Min(delay, maxDelaySeconds);
+
         if (ex is RimLLMException rimEx && rimEx.RetryAfter.HasValue)
         {
             delay = Math.Max(delay, (float)rimEx.RetryAfter.Value.TotalSeconds);
         }
 
-        return Math.Min(delay, maxDelaySeconds);
+        return delay;
     }
 
-    /// <summary>Fisher-Yates 洗牌，用於隨機輪詢負載均衡。</summary>
-    private static void ShuffleCandidates(List<ResolvedCandidate> candidates)
+    /// <summary>輪替候選起點；能力查詢不推進游標。</summary>
+    private void RotateCandidates(List<ResolvedCandidate> candidates, bool advanceRoundRobin)
     {
-        for (int i = candidates.Count - 1; i > 0; i--)
+        if (!advanceRoundRobin || candidates.Count == 0)
         {
-            int j = NextRandomInt(i + 1);
-            var temp = candidates[i];
-            candidates[i] = candidates[j];
-            candidates[j] = temp;
+            return;
         }
+
+        int next = unchecked(Interlocked.Increment(ref _roundRobinIndex) - 1);
+        int offset = (int)((uint)next % (uint)candidates.Count);
+        if (offset == 0) return;
+
+        var rotated = candidates.Skip(offset).Concat(candidates.Take(offset)).ToList();
+        candidates.Clear();
+        candidates.AddRange(rotated);
     }
 
 #pragma warning disable S2245 // reason: 僅用於重試抖動與負載均衡輪詢，非安全相關隨機，無需密碼學強度
@@ -220,16 +235,10 @@ public class RimLLMFallbackPipeline
 #pragma warning restore S2245
     private static readonly object RandomLock = new();
 
-    // Random 非執行緒安全，而重試與洗牌都可能來自不同的背景執行緒；
-    // 共用一個加鎖實例，同時也避免每次 new Random() 在同一毫秒內產生相同序列。
+    // Random 非執行緒安全，重試抖動可能來自不同的背景執行緒；共用加鎖實例。
     private static double NextRandomDouble()
     {
         lock (RandomLock) { return SharedRandom.NextDouble(); }
-    }
-
-    private static int NextRandomInt(int maxExclusive)
-    {
-        lock (RandomLock) { return SharedRandom.Next(maxExclusive); }
     }
 
     /// <summary>

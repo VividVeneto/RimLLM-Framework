@@ -9,11 +9,13 @@
 * The framework exposes the standard Microsoft.Extensions.AI interfaces. Callers only work against `IChatClient` or `IEmbeddingGenerator` and never need to know which provider or model handled the request — `RimLLMManager` handles dispatch and fallback rotation.
 * `CreateChatClient` returns a stack of MEAI `DelegatingChatClient` middleware — reasoning-effort normalization, anti-abuse throttle, budget guard, priority queue — terminating in a `FailoverChatClient` that routes across the fallback chain. Every layer is `internal`. The only framework-specific types a consumer touches are `RimLLMProvider`, `RimLLMChatOptions`, `RimLLMException` and `LLMError`; everything else crossing the boundary is a MEAI type.
 * `modId` is a plain label, not a credential. It keys per-mod anti-abuse throttling and telemetry attribution, and requires no registration call.
+* Chat and embedding facades check the same usage ledger before dispatching a billable request. HardBlock, WarnOnly and daily resets therefore have the same meaning on both paths. Chat messages are materialized once at the guard boundary, so checking for a tool-loop continuation does not consume a one-shot enumerable before the provider sees it.
 
 ### 2. Unity main-thread dispatcher (`RimLLMDispatcher`)
 
 * Network requests run asynchronously on background thread-pool threads, but most Unity APIs and RimWorld logic are not thread safe — calling them from a background thread causes crashes or TPS spikes.
 * `RimLLMDispatcher` is a MonoBehaviour singleton that collects callbacks from background threads in a `ConcurrentQueue` and dispatches them back to the main thread during Unity's per-frame `Update`.
+* Queued tool calls observe cancellation before invocation and can stop waiting while still queued. Once a tool starts, its own cancellation support governs further work. Chat-test callbacks carry a request generation, checked when the callback executes; stopping or clearing a request invalidates its queued updates before history indexes can be reused.
 
 ### 3. Streaming bridge (`Channel<T>`)
 
@@ -22,6 +24,7 @@
 * `IAsyncEnumerable` and `ValueTask` use the native .NET 10 types, without BCL compatibility packages or extern aliases.
 * A thin wrapper unwraps `ChannelClosedException` so producer failures surface to callers as the original `RimLLMException`.
 * The executor's fallback token estimate is accumulated chunk by chunk as a running count instead of buffering the streamed text, so an abnormally large stream cannot grow memory without bound.
+* A stream with output or reported usage settles once on both normal and exceptional termination. Cancellation, idle timeout and a broken connection preserve their original error behavior without discarding already observed consumption. Streams that fail before producing output or reporting usage do not invent a successful usage record.
 
 ### 4. Unified HTTP error mapping (`LLMErrorMapper`)
 
@@ -32,16 +35,16 @@
 ### 5. Fault-tolerant structured output (structured output & JSON repair)
 
 * Developers frequently need the model to return a specific JSON shape.
-* The built-in OpenAI-family providers prefer the official SDK's native structured output through `IChatClient`'s JSON Schema response format (Gemini included, via its OpenAI-compatible endpoint). The framework validates required members and null state before deserializing into the target C# object.
+* The built-in OpenAI-family providers prefer the official SDK's native structured output through `IChatClient`'s JSON Schema response format (Gemini included, via its OpenAI-compatible endpoint). Required JSON member presence and nullability are checked against the generated schema shape derived from the serialization contract, including dictionary values, rather than inferred from CLR defaults after deserialization. Ignored and non-participating members are not treated as required output.
 * The schema itself is generated in a single OpenAI-compatible dialect — all members land in `required`, and optionality is expressed as a `["integer","null"]` union. See [Architecture §6](#6-official-sdks-and-provider-responsibilities).
-* The `RepairJson` fallback is only used when the provider has no native schema support, the service rejects the schema, or the model still returns malformed output. It handles Markdown fences (such as ` ```json `), unclosed brackets, trailing commas and JSON block extraction.
+* The `RepairJson` fallback is only used when the provider has no native schema support, the service rejects the schema, or the model still returns malformed output. It handles Markdown fences (such as ` ```json `), unclosed brackets, trailing commas and JSON block extraction. Repairs distinguish JSON syntax from quoted string content: a literal comma, bracket or `<think>…</think>` inside a JSON string is preserved.
 
 ### 6. Official SDKs and provider responsibilities
 
 * **One SDK for every provider.** All built-in providers go through the `OpenAI` SDK `2.14.0` and the `IChatClient` of Microsoft.Extensions.AI `10.10.0`; there is no raw HTTP chat path and no second SDK. Gemini uses Google's official OpenAI-compatible endpoint. The shared layer depends only on `IChatClient`, `LLMProviderCapabilities` and `ILLMProvider`.
 * **RimWorld 1.7 / .NET 10 only.** All three projects target `net10.0`, with SDK and MEAI assets selected normally by NuGet.
 * **MEAI.Abstractions uses its .NET 10 asset.** There is no forced netstandard asset or bundled legacy BCL; `ShippedAssembliesTargetNet10` verifies the release artifacts.
-* **Structured-output schemas** come from `System.Text.Json`'s `JsonSchemaExporter`, then `RimLLMSchemaBuilder` normalizes them into a subset every provider accepts: `$ref` pointers are inlined (cycles are cut at the CLR type), nesting is capped at 5 levels (OpenAI strict mode's limit; its 100-property total is not enforced yet), every member is listed in `required` with optionality expressed as a `["type","null"]` union, and `[Description]` is carried over.
+* **Structured-output schemas** come from `System.Text.Json`'s `JsonSchemaExporter`, then `RimLLMSchemaBuilder` normalizes them into a subset every provider accepts: `$ref` pointers are inlined (cycles are cut at the CLR type), nesting is capped at 5 levels (OpenAI strict mode's limit; its 100-property total is not enforced yet), every member is listed in `required` with optionality expressed as a `["type","null"]` union, and `[Description]` is carried over. Nullable value types keep that union when used as collection elements or dictionary values as well as object members.
 * **Rules for structured-output types**: schema generation and deserialization share one System.Text.Json contract, so don't put a custom `JsonConverter` on them. Mods migrating from Newtonsoft must switch `[JsonProperty("x")]` to `[JsonPropertyName("x")]` and use System.Text.Json's `[JsonIgnore]`; the old attributes are silently ignored.
 
 ---
@@ -52,7 +55,7 @@ To avoid misunderstanding, here is an honest description of what each security m
 
 * **API key encryption uses an OS-protected per-user key.** New entries use AES-256 with a random storage key wrapped by the current user's OS protection. Only `v3:` ciphertext is supported; there is no fixed-seed or device-derived legacy decryption path. This protects copied settings from decryption by another user or machine, but it **cannot** defend against code running in the same user context or the same RimWorld process (including other mods), where the framework must use the key to serve requests.
 * **`modId` is an attribution label, not authentication.** Per-mod throttling preserves fair use for cooperative mods, while a shared safety ceiling (ten times the configured per-mod window) counts every actual provider call, including tool-loop continuations, and prevents rotating labels from creating unlimited provider calls. Same-process mods are still not isolated, so do not treat the SDK as a hostile-mod sandbox.
-* **Keys never reach URLs or logs.** All providers pass keys via HTTP headers; log output always goes through `SanitizeForLog` and is length-truncated, and the device identifier is masked in diagnostic exports.
+* **Keys never reach request URLs.** All providers pass keys via HTTP headers. Diagnostic previews use `SanitizeForLog` and length limits; the sanitizer covers known key prefixes and key/authorization assignments in headers, URLs and quoted JSON fields. It is a best-effort text sanitizer, not a guarantee that every arbitrary secret in third-party text can be recognized. The device identifier is masked in diagnostic exports.
 * **Refreshing a model list also contacts models.dev.** Besides the provider itself, the refresh downloads the public `https://models.dev/api.json` to fill in context window sizes. It is a plain GET with no API key or other player data; if it fails, the refresh still succeeds and only a warning is logged.
 * **Provider output is untrusted UI input.** ChatTest keeps only its own grey-thinking color wrapper as rich text; raw provider HTML tags are displayed literally before Markdown reaches Unity IMGUI.
 
@@ -70,6 +73,8 @@ Only `v3:` ciphertext is supported. Legacy unversioned/v1/v2 formats, hardware s
 ## 🧪 Unit tests and verification
 
 The project ships with a full unit test suite in `Source/RimLLM Framework.Tests` (a standalone project alongside the main one) covering AES encryption/decryption, model fallback, JSON Schema generation (normalization and repair), HTTP error mapping, `Retry-After` parsing, `ChatOptions` cloning, streaming retries and budget control.
+
+Review regression fixtures additionally exercise exhausted embedding budgets and caller cancellation, partial-stream accounting, long `Retry-After` delays, RoundRobin rotation without capability-query side effects, one-shot message sequences, queued-tool cancellation, stale chat callbacks, quoted log secrets, required JSON members, dictionary values and nullable collection schemas. HTTP behavior is tested with fake transports; these checks do not require paid provider requests.
 
 ### Build and runtime requirements
 
@@ -92,7 +97,7 @@ Run pwsh -File Tests/NativeKeyring/run-linux.ps1 with Docker available. The laun
 
 ### C# conventions
 
-Source code uses stable C# 14 syntax: file-scoped namespaces, target-typed construction, exact-type collection expressions, using declarations and pattern matching where they preserve behavior. The repository .editorconfig records these choices for future work. Public SDK signatures, serialized data shapes and resource lifetimes remain unchanged. Streaming queue middleware uses an async iterator with EnumeratorCancellation and await foreach, so the compiler owns cancellation-token combination and enumerator disposal; the concurrency slot spans the entire enumeration, including pauses between updates. QueuedStreamingTests verifies lazy start, slot ownership across yields, disposal after early termination, and cancellation from either token when method and enumerator tokens differ. These changes improve maintainability; no performance gain is claimed without measurements.
+Source code uses stable C# 14 syntax: file-scoped namespaces, target-typed construction, exact-type collection expressions, using declarations and pattern matching where they preserve behavior. The repository .editorconfig records these choices for future work. Existing public SDK signatures and serialized data shapes remain compatible; cancellable dispatcher calls use an added overload while preserving the original signature. Streaming queue middleware uses an async iterator with EnumeratorCancellation and await foreach, so the compiler owns cancellation-token combination and enumerator disposal; the concurrency slot spans the entire enumeration, including pauses between updates. QueuedStreamingTests verifies lazy start, slot ownership across yields, disposal after early termination, and cancellation from either token when method and enumerator tokens differ. These changes improve maintainability; no performance gain is claimed without measurements.
 
 ### In-game integration tests (SmashPhil DevTools)
 

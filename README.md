@@ -308,8 +308,8 @@ Everything else — `IChatClient`, `ChatMessage`, `ChatResponse`, `ChatResponseU
 7. **Thread safety** — locked settings, main-thread dispatch and throttled background telemetry writes.
 8. **Reasoning models** — chain of thought delivered as MEAI `TextReasoningContent`; reasoning effort control on every provider.
 9. **Prompt caching** — `CachedContext` for server-side caching, with cache-hit savings shown in the usage stats.
-10. **Embedding SDK** — a standard `IEmbeddingGenerator` backed by Gemini, OpenAI, Ollama or an OpenAI-compatible endpoint.
-11. **Native tool calling** — MEAI `AIFunction` on every provider, with tools executed on the main thread.
+10. **Embedding SDK** — a standard `IEmbeddingGenerator` backed by Gemini, OpenAI, Ollama or an OpenAI-compatible endpoint, sharing the daily budget guard with chat.
+11. **Native tool calling** — MEAI `AIFunction` on every provider, with main-thread execution and cancellation before dispatch.
 12. **Third-party integration** — route RimTalk, Auto Translation, Mod Compatibility Checker and Simplified Chinese Automation: One through RimLLM.
 13. **Mods using RimLLM** — a settings tab listing the mods that depend on or have called RimLLM this session.
 

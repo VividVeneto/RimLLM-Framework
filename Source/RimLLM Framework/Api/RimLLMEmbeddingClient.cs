@@ -33,6 +33,11 @@ internal class RimLLMEmbeddingClient : IEmbeddingGenerator<string, Embedding<flo
 
         _manager.UsageTracker.RecordCaller(_modId);
         _manager.CheckAntiAbuseForMod(_modId);
+        if (!_manager.UsageTracker.CheckBudgetLimit())
+        {
+            throw new RimLLMException(LLMError.QuotaExceeded, "Daily budget limit exceeded.");
+        }
+
         IReadOnlyList<RimLLMEmbeddingResult> results = await _manager.EmbeddingService
             .ComputeEmbeddingsAsync(values, cancellationToken)
             .ConfigureAwait(false);

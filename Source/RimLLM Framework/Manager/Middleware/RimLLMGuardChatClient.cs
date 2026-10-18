@@ -42,8 +42,9 @@ internal sealed class RimLLMGuardChatClient : DelegatingChatClient
         ChatOptions options = null,
         CancellationToken cancellationToken = default)
     {
-        Guard(messages);
-        return base.GetResponseAsync(messages, options, cancellationToken);
+        List<ChatMessage> bufferedMessages = messages?.ToList();
+        Guard(bufferedMessages);
+        return base.GetResponseAsync(bufferedMessages, options, cancellationToken);
     }
 
     public override IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
@@ -51,11 +52,13 @@ internal sealed class RimLLMGuardChatClient : DelegatingChatClient
         ChatOptions options = null,
         CancellationToken cancellationToken = default)
     {
+        List<ChatMessage> bufferedMessages = messages?.ToList();
+
         // 刻意在建立列舉器之前就檢查，與非串流路徑同時計入同一個視窗：
         // 若延後到第一次 MoveNextAsync 才檢查，尚未開始列舉的請求就不會計數，
         // 送出大量請求卻不列舉即可繞過節流。
-        Guard(messages);
-        return base.GetStreamingResponseAsync(messages, options, cancellationToken);
+        Guard(bufferedMessages);
+        return base.GetStreamingResponseAsync(bufferedMessages, options, cancellationToken);
     }
 
     private void Guard(IEnumerable<ChatMessage> messages)

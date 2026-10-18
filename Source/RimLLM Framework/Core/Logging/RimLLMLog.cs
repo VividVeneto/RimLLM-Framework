@@ -20,10 +20,10 @@ public static class RimLLMLog
     private static readonly Regex SecretPattern = new(
         @"(?i)(" +
         // 賦值形式（含 x-api-key、x-goog-api-key 等 header 名稱）
-        @"(?:x-goog-)?api[_\- ]?key\s*[:=]\s*[""']?[^""'\s,;}]+" +
-        @"|x-api-key\s*[:=]\s*[""']?[^""'\s,;}]+" +
+        @"(?:x-goog-)?api[_\- ]?key[""']?\s*[:=]\s*[""']?[^""'\s,;}]+" +
+        @"|x-api-key[""']?\s*[:=]\s*[""']?[^""'\s,;}]+" +
         // 需一併吃掉 "Bearer " 前綴，否則只會遮到 scheme 而讓後面的 token 露出。
-        @"|authorization\s*[:=]\s*[""']?(?:Bearer\s+)?[^""'\s,;}]+" +
+        @"|authorization[""']?\s*[:=]\s*[""']?(?:Bearer\s+)?[^""'\s,;}]+" +
         @"|key=[^&\s]+" +
         // Bearer token
         @"|Bearer\s+[A-Za-z0-9\-._~+/]{16,}={0,2}" +

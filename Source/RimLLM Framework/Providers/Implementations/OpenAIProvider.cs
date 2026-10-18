@@ -616,6 +616,8 @@ public class OpenAIProvider : ILLMProvider
 
         var result = new TestResult { Provider = ProviderId };
         var stopwatch = Stopwatch.StartNew();
+        float timeoutSeconds = Settings.ApiTimeout > 0 ? Settings.ApiTimeout : 30f;
+        using var timeoutCts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
 
         try
         {
@@ -637,7 +639,7 @@ public class OpenAIProvider : ILLMProvider
             }
 
             using IChatClient client = CreateChatClient(testModel);
-            await client.GetResponseAsync(messages, options).ConfigureAwait(false);
+            await client.GetResponseAsync(messages, options, timeoutCts.Token).ConfigureAwait(false);
             stopwatch.Stop();
 
             result.Success = true;
@@ -650,6 +652,14 @@ public class OpenAIProvider : ILLMProvider
             result.Success = false;
             result.ErrorMessage = ex.Message;
             result.ErrorCode = ex.Error;
+            result.LatencyMs = stopwatch.ElapsedMilliseconds;
+        }
+        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
+        {
+            stopwatch.Stop();
+            result.Success = false;
+            result.ErrorMessage = $"Connection test timed out after {timeoutSeconds} seconds.";
+            result.ErrorCode = LLMError.Timeout;
             result.LatencyMs = stopwatch.ElapsedMilliseconds;
         }
         catch (Exception ex)
@@ -684,6 +694,8 @@ public class OpenAIProvider : ILLMProvider
         string apiKey = Settings.GetActiveApiKey(ProviderId);
         string endpoint = NormalizeEndpoint(
             Settings.GetEndpoint(ProviderId, DefaultEndpoint));
+        float timeoutSeconds = Settings.ApiTimeout > 0 ? Settings.ApiTimeout : 30f;
+        using var timeoutCts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
 
         var options = new OpenAIClientOptions();
         if (!string.IsNullOrEmpty(endpoint))
@@ -701,7 +713,7 @@ public class OpenAIProvider : ILLMProvider
         {
             ClientResult<OpenAIModelCollection> result = await new OpenAIClient(credential, options)
                 .GetOpenAIModelClient()
-                .GetModelsAsync()
+                .GetModelsAsync(timeoutCts.Token)
                 .ConfigureAwait(false);
 
             foreach (OpenAIModel model in System.Linq.Enumerable.Where(result.Value, m => !string.IsNullOrEmpty(m?.Id)))
@@ -727,6 +739,13 @@ public class OpenAIProvider : ILLMProvider
                 ex.Status,
                 $"Failed to fetch {ProviderId} models list: {RimLLMLog.SanitizeForLog(ex.Message, 200)}",
                 innerException: ex);
+        }
+        catch (OperationCanceledException ex) when (timeoutCts.IsCancellationRequested)
+        {
+            throw new RimLLMException(
+                LLMError.Timeout,
+                $"Fetching {ProviderId} models list timed out after {timeoutSeconds} seconds.",
+                ex);
         }
         catch (Exception ex)
         {

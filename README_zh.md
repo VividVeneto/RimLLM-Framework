@@ -306,8 +306,8 @@ ChatResponse response = await client.GetResponseAsync(messages, options);
 7. **執行緒安全** —— 設定加鎖、主執行緒派送、背景節流寫入遙測。
 8. **推理模型** —— 思維鏈以 MEAI 的 `TextReasoningContent` 交付；每個供應商都能控制思考強度。
 9. **Prompt 快取** —— 以 `CachedContext` 使用服務端快取，用量統計會算出快取省下的費用。
-10. **Embedding SDK** —— 標準 `IEmbeddingGenerator`，後端可選 Gemini、OpenAI、Ollama 或 OpenAI 相容端點。
-11. **原生 Tool Calling** —— 所有供應商都支援 MEAI 的 `AIFunction`，工具在主執行緒執行。
+10. **Embedding SDK** —— 標準 `IEmbeddingGenerator`，後端可選 Gemini、OpenAI、Ollama 或 OpenAI 相容端點，與對話共用每日預算守衛。
+11. **原生 Tool Calling** —— 所有供應商都支援 MEAI 的 `AIFunction`，工具在主執行緒執行，可取消尚未派送的工具。
 12. **第三方整合** —— 讓 RimTalk、Auto Translation、Mod Compatibility Checker、簡中自動化：One 改走 RimLLM。
 13. **使用中的模組** —— 設定分頁列出宣告依賴或本次遊戲呼叫過 RimLLM 的模組。
 

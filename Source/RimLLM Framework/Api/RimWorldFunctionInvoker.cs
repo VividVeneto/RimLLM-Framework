@@ -48,8 +48,13 @@ public static class RimWorldFunctionInvoker
                 // 被裝箱成工具結果送給模型（{"isCompleted":…,"result":42}），async 工具更會在
                 // 序列化時阻塞。
                 return await RimLLMDispatcher.EnqueueOnMainThreadAsync(
-                    () => context.Function.InvokeAsync(context.Arguments, cancellationToken).AsTask()
-                ).ConfigureAwait(false);
+                    () =>
+                    {
+                        // token 在入列後、開始呼叫工具前取消時，不應執行工具副作用。
+                        cancellationToken.ThrowIfCancellationRequested();
+                        return context.Function.InvokeAsync(context.Arguments, cancellationToken).AsTask();
+                    },
+                    cancellationToken).ConfigureAwait(false);
             }
         };
     }

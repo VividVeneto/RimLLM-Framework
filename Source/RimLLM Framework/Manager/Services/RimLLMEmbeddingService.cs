@@ -131,6 +131,7 @@ public class RimLLMEmbeddingService
     public async Task<IReadOnlyList<RimLLMEmbeddingResult>> ComputeEmbeddingsAsync(IEnumerable<string> texts, CancellationToken cancellationToken = default)
     {
         if (texts == null) throw new ArgumentNullException(nameof(texts));
+        cancellationToken.ThrowIfCancellationRequested();
 
         var inputs = new List<string>(texts);
         var results = new List<RimLLMEmbeddingResult>(inputs.Count);
@@ -207,6 +208,10 @@ public class RimLLMEmbeddingService
             // 呼叫端沒有取消，代表是 ApiTimeout 觸發的逾時。
             throw new RimLLMException(LLMError.Timeout, $"Embedding request timed out after {ctx.TimeoutSeconds} seconds.");
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch (ClientResultException ex)
         {
             throw LLMErrorMapper.CreateException(
@@ -251,6 +256,7 @@ public class RimLLMEmbeddingService
         {
             throw new RimLLMException(LLMError.Unknown, "No embedding provider is configured; cannot fetch the model list.");
         }
+        cancellationToken.ThrowIfCancellationRequested();
 
         string effectiveApiKey = string.IsNullOrEmpty(apiKey)
             ? _settings.GetActiveApiKey(GetMainProviderIdForEmbedding(provider))
@@ -278,6 +284,10 @@ public class RimLLMEmbeddingService
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             throw new RimLLMException(LLMError.Timeout, $"Embedding model list request timed out after {timeoutSeconds} seconds.");
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (ClientResultException ex)
         {
@@ -599,6 +609,7 @@ public class RimLLMEmbeddingService
         {
             throw new RimLLMException(LLMError.Unknown, "Specify an embedding model name first.");
         }
+        cancellationToken.ThrowIfCancellationRequested();
 
         string effectiveApiKey = string.IsNullOrEmpty(apiKey)
             ? _settings.GetActiveApiKey(GetMainProviderIdForEmbedding(provider))
@@ -616,6 +627,10 @@ public class RimLLMEmbeddingService
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             throw new RimLLMException(LLMError.Timeout, $"Embedding connection test timed out after {timeoutSeconds} seconds.");
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (ClientResultException ex)
         {

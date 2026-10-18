@@ -82,7 +82,7 @@ public static class RimLLMSchemaBuilder
     /// </summary>
     public const int OpenAIMaxSchemaDepth = 5;
 
-    /// <summary>Stage B 用來標記「這個成員是 <c>Nullable&lt;T&gt;</c>」的私有關鍵字，Stage C 會翻譯並移除它。</summary>
+    /// <summary>Stage B 用來標記 <c>Nullable&lt;T&gt;</c> 節點的私有關鍵字，Stage C 會翻譯並移除它。</summary>
     private const string OptionalMarker = "x-rimllm-optional";
 
     /// <summary>Stage C 之前允許存在的關鍵字。其餘一律剝除。</summary>
@@ -257,6 +257,12 @@ public static class RimLLMSchemaBuilder
             ["type"] = typeName
         };
 
+        // Nullable<T> 可能是成員、陣列元素或字典值；標記型別節點本身，讓後續方言轉換一致保留 null。
+        if (typeInfo != null && Nullable.GetUnderlyingType(typeInfo.Type) != null)
+        {
+            result[OptionalMarker] = true;
+        }
+
         JsonNode description = collapsed["description"];
         if (description != null && description.GetValueKind() == JsonValueKind.String)
         {
@@ -348,13 +354,6 @@ public static class RimLLMSchemaBuilder
                     if (memberSchema == null) continue;
 
                     ApplyMemberDescription(memberSchema, memberInfo);
-
-                    // 專案未啟用 NRT，所以 exporter 會把所有參考型別都寫成可為 null 的聯集。
-                    // 只有 Nullable<T> 才是真正的選填成員 —— 與舊實作的判定一致。
-                    if (memberInfo != null && Nullable.GetUnderlyingType(memberInfo.PropertyType) != null)
-                    {
-                        memberSchema[OptionalMarker] = true;
-                    }
 
                     properties[property.Key] = memberSchema;
                     required.Add(property.Key);
@@ -564,6 +563,15 @@ public static class RimLLMSchemaBuilder
             {
                 node["type"] = new JsonArray(type.GetValue<string>(), "null");
             }
+            else if (type is JsonArray typeNames && !ContainsTypeName(typeNames, "null"))
+            {
+                typeNames.Add("null");
+            }
+
+            if (node["enum"] is JsonArray enumValues && !ContainsNull(enumValues))
+            {
+                enumValues.Add((JsonNode)null);
+            }
         }
 
         // 白名單過濾放在最後。
@@ -592,6 +600,25 @@ public static class RimLLMSchemaBuilder
         }
     }
 #pragma warning restore S3776
+
+    private static bool ContainsTypeName(JsonArray values, string name)
+    {
+        foreach (JsonNode value in values)
+        {
+            if (value != null && value.GetValueKind() == JsonValueKind.String &&
+                string.Equals(value.GetValue<string>(), name, StringComparison.Ordinal)) return true;
+        }
+        return false;
+    }
+
+    private static bool ContainsNull(JsonArray values)
+    {
+        foreach (JsonNode value in values)
+        {
+            if (value == null || value.GetValueKind() == JsonValueKind.Null) return true;
+        }
+        return false;
+    }
 
     private static bool HasOpenEndedMap(JsonObject node)
     {

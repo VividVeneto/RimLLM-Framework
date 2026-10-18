@@ -168,7 +168,13 @@ public class RimLLMManager
     /// </summary>
     internal bool TryGetEffectiveCapabilities(string preferredModelId, out LLMProviderCapabilities effective, out string failureReason)
     {
-        if (!_fallbackPipeline.TryResolveCandidates(preferredModelId, null, includeCoolingDown: true, out List<RimLLMFallbackPipeline.ResolvedCandidate> candidates, out failureReason))
+        if (!_fallbackPipeline.TryResolveCandidates(
+                preferredModelId,
+                null,
+                includeCoolingDown: true,
+                out List<RimLLMFallbackPipeline.ResolvedCandidate> candidates,
+                out failureReason,
+                advanceRoundRobin: false))
         {
             effective = null;
             return false;

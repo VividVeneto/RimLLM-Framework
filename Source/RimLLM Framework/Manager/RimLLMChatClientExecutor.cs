@@ -174,6 +174,15 @@ internal static class RimLLMChatClientExecutor
             {
                 throw new RimLLMException(LLMError.Timeout, $"{providerId} stream idle timeout: no new content for {timeoutSeconds} seconds.");
             }
+            finally
+            {
+                // 串流中斷不會撤銷已收到的用量；只要有內容或 provider 用量，就在所有結束路徑結算一次。
+                // 沒有 provider 用量時 RecordUsage 會沿用已累計的 completionEstimate。
+                if (anyOutput || lastUsage != null)
+                {
+                    RecordUsage(providerId, model, builtMessages, lastUsage, completionEstimate, onUsage);
+                }
+            }
         }
 
         if (!anyOutput)
@@ -182,7 +191,6 @@ internal static class RimLLMChatClientExecutor
             throw new RimLLMException(LLMError.NetworkError, $"{providerId} returned an empty stream.");
         }
 
-        RecordUsage(providerId, model, builtMessages, lastUsage, completionEstimate, onUsage);
     }
 #pragma warning restore S107, S3776
 

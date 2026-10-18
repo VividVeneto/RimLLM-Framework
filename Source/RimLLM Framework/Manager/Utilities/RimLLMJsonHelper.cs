@@ -1,9 +1,12 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 using System.Text.RegularExpressions;
 using RimLLM_Framework.Core;
 #pragma warning disable S108, S1133, S1643, S2486, S6610 // reason: 批次抑制 MINOR/INFO 規則，語意保留，重構風險高於收益，維持現狀
@@ -17,15 +20,14 @@ namespace RimLLM_Framework.Manager;
 /// </summary>
 public static class RimLLMJsonHelper
 {
-    private static readonly Regex TrailingCommaRegex = new(@",\s*([\]}])", RegexOptions.Compiled, TimeSpan.FromSeconds(1));
     private static readonly Regex JsonBlockRegex = new(@"(\{.*\}|\[.*\])", RegexOptions.Compiled | RegexOptions.Singleline, TimeSpan.FromSeconds(1));
-    private static readonly Regex ThinkTagRegex = new(@"<think>.*?</think>", RegexOptions.Compiled | RegexOptions.Singleline, TimeSpan.FromSeconds(1));
     private static readonly ConcurrentDictionary<Type, string> SampleJsonCache = new();
 
     // 全框架共用的 JSON 引擎與寬容設定（原 RimLLMJson，已併入此檔）。
     // DTO 大量使用 public field（STJ 預設只看 property），反序列化大小寫不敏感，
     // 並對齊舊 Newtonsoft 寬容度：數字可由字串讀入、尾隨逗號與註解略過、列舉接受名稱。
     private static readonly JsonSerializerOptions SharedOptions = CreateSharedOptions();
+    private static readonly DefaultJsonTypeInfoResolver SharedTypeInfoResolver = new();
 
     private static JsonSerializerOptions CreateSharedOptions()
     {
@@ -146,8 +148,8 @@ public static class RimLLMJsonHelper
 
         json = json.Trim();
 
-        // 0. 剝離 <think>...</think> 標籤及其內容，以避免結構化 JSON 解析失敗
-        json = ThinkTagRegex.Replace(json, "").Trim();
+        // 0. 只移除 JSON 字串外的思考區塊，避免改寫模型真正輸出的文字。
+        json = RemoveThinkBlocksOutsideStrings(json).Trim();
 
         // 1. 移除 Markdown 標記
         if (json.StartsWith("```"))
@@ -168,8 +170,8 @@ public static class RimLLMJsonHelper
         }
         json = json.Trim();
 
-        // 2. 移除尾隨逗號 (使用編譯後的靜態 Regex 提效)
-        json = TrailingCommaRegex.Replace(json, "$1");
+        // 2. 移除字串外的尾隨逗號。
+        json = RemoveTrailingCommasOutsideStrings(json);
 
         // 3. 補齊缺失括號 (跳過雙引號字串內部的字元)。
         //    以堆疊記錄尚待閉合的符號，才能對交錯巢狀（如 {"a":[1) 產生正確的閉合順序；
@@ -180,22 +182,28 @@ public static class RimLLMJsonHelper
         bool escapeNext = false;
         foreach (char c in json)
         {
-            if (escapeNext)
+            if (inString)
             {
-                escapeNext = false;
+                if (escapeNext)
+                {
+                    escapeNext = false;
+                }
+                else if (c == '\\')
+                {
+                    escapeNext = true;
+                }
+                else if (c == '"')
+                {
+                    inString = false;
+                }
                 continue;
             }
-            if (c == '\\')
-            {
-                escapeNext = true;
-                continue;
-            }
+
             if (c == '"')
             {
-                inString = !inString;
+                inString = true;
                 continue;
             }
-            if (inString) continue;
 
             if (c == '{') expectedClosers.Add('}');
             else if (c == '[') expectedClosers.Add(']');
@@ -215,7 +223,8 @@ public static class RimLLMJsonHelper
         // 3a. 字串在結尾處未閉合時先補上引號，否則後續補的括號會落在字串內部。
         if (inString)
         {
-            json += "\"";
+            // 未配對的跳脫符號會吃掉新補的引號，先補一個反斜線讓字串正確閉合。
+            json += escapeNext ? "\\\"" : "\"";
         }
 
         // 3b. 清掉截斷造成的懸空 token，避免補完括號後仍無法解析。
@@ -237,6 +246,112 @@ public static class RimLLMJsonHelper
         }
 
         return json;
+    }
+
+    private static string RemoveThinkBlocksOutsideStrings(string json)
+    {
+        var result = new StringBuilder(json.Length);
+        bool inString = false;
+        bool escapeNext = false;
+
+        for (int index = 0; index < json.Length;)
+        {
+            char current = json[index];
+            if (inString)
+            {
+                result.Append(current);
+                if (escapeNext)
+                {
+                    escapeNext = false;
+                }
+                else if (current == '\\')
+                {
+                    escapeNext = true;
+                }
+                else if (current == '"')
+                {
+                    inString = false;
+                }
+                index++;
+                continue;
+            }
+
+            if (current == '"')
+            {
+                inString = true;
+                result.Append(current);
+                index++;
+                continue;
+            }
+
+            const string thinkStart = "<think>";
+            if (index + thinkStart.Length <= json.Length &&
+                string.CompareOrdinal(json, index, thinkStart, 0, thinkStart.Length) == 0)
+            {
+                const string thinkEnd = "</think>";
+                int end = json.IndexOf(thinkEnd, index + thinkStart.Length, StringComparison.Ordinal);
+                if (end >= 0)
+                {
+                    index = end + thinkEnd.Length;
+                    continue;
+                }
+            }
+
+            result.Append(current);
+            index++;
+        }
+
+        return result.ToString();
+    }
+
+    private static string RemoveTrailingCommasOutsideStrings(string json)
+    {
+        var result = new StringBuilder(json.Length);
+        bool inString = false;
+        bool escapeNext = false;
+
+        for (int index = 0; index < json.Length; index++)
+        {
+            char current = json[index];
+            if (inString)
+            {
+                result.Append(current);
+                if (escapeNext)
+                {
+                    escapeNext = false;
+                }
+                else if (current == '\\')
+                {
+                    escapeNext = true;
+                }
+                else if (current == '"')
+                {
+                    inString = false;
+                }
+                continue;
+            }
+
+            if (current == '"')
+            {
+                inString = true;
+                result.Append(current);
+                continue;
+            }
+
+            if (current == ',')
+            {
+                int next = index + 1;
+                while (next < json.Length && char.IsWhiteSpace(json[next])) next++;
+                if (next < json.Length && (json[next] == '}' || json[next] == ']'))
+                {
+                    continue;
+                }
+            }
+
+            result.Append(current);
+        }
+
+        return result.ToString();
     }
 
     /// <summary>
@@ -359,8 +474,20 @@ public static class RimLLMJsonHelper
     /// </summary>
     public static T DeserializeAndValidate<T>(string json)
     {
+        using JsonDocument document = JsonDocument.Parse(
+            json,
+            new JsonDocumentOptions
+            {
+                AllowTrailingCommas = true,
+                CommentHandling = JsonCommentHandling.Skip
+            });
+        ValidateRequiredJsonMembers(document.RootElement, RimLLMSchemaBuilder.Build(typeof(T)).Element);
+
         T result = Deserialize<T>(json);
-        ValidateStructuredObject(result);
+        if (ReferenceEquals(result, null))
+        {
+            throw new InvalidOperationException("Structured response deserialized to null.");
+        }
         return result;
     }
 
@@ -386,108 +513,187 @@ public static class RimLLMJsonHelper
     /// </summary>
     public static void ValidateRequiredMembers(object value, Type type, HashSet<Type> visitedTypes)
     {
-        if (value == null || type == typeof(string) || type.IsPrimitive || type.IsEnum || type == typeof(decimal))
-        {
-            return;
-        }
-        if (!visitedTypes.Add(type))
-        {
-            // 目前遞迴路徑上已有此型別，代表循環引用；停止下潛避免 StackOverflow。
-            return;
-        }
+        if (value == null || type == null) return;
+        visitedTypes ??= new HashSet<Type>();
+
+        if (type == typeof(string) || type.IsPrimitive || type.IsEnum || type == typeof(decimal)) return;
+        if (!visitedTypes.Add(type)) return;
 
         try
         {
-            if (value is System.Collections.IEnumerable enumerable && type != typeof(string))
+            JsonTypeInfo typeInfo = SharedTypeInfoResolver.GetTypeInfo(type, SharedOptions);
+            if (typeInfo.Kind == JsonTypeInfoKind.Dictionary)
             {
-                Type elementType = GetCollectionElementType(type);
-                foreach (object item in enumerable)
+                foreach (object item in EnumerateDictionaryValues(value))
                 {
-                    if (item == null)
-                    {
-                        // 可空元素型別（如 int?）允許 null；其餘一律視為必填，null 代表 LLM 回傳了殘缺陣列。
-                        if (elementType != null && !IsRequiredMember(elementType))
-                        {
-                            continue;
-                        }
-                        throw new InvalidOperationException(
-                            $"Required structured response collection element is null (collection type '{type.Name}').");
-                    }
-                    ValidateRequiredMembers(item, item.GetType(), visitedTypes);
+                    ValidateRuntimeMember(
+                        item,
+                        typeInfo.ElementType,
+                        visitedTypes,
+                        $"Required structured response dictionary value is null (dictionary type '{type.Name}').");
                 }
                 return;
             }
 
-            foreach (var property in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+            if (typeInfo.Kind == JsonTypeInfoKind.Enumerable && value is IEnumerable collection)
             {
-                if (!property.CanRead || !property.CanWrite || property.GetIndexParameters().Length > 0)
+                foreach (object item in collection)
                 {
-                    continue;
+                    ValidateRuntimeMember(
+                        item,
+                        typeInfo.ElementType,
+                        visitedTypes,
+                        $"Required structured response collection element is null (collection type '{type.Name}').");
                 }
-
-                object memberValue = property.GetValue(value, null);
-                if (memberValue == null && IsRequiredMember(property.PropertyType))
-                {
-                    throw new InvalidOperationException($"Required structured response member '{property.Name}' is null.");
-                }
-                if (memberValue != null)
-                {
-                    ValidateRequiredMembers(memberValue, property.PropertyType, visitedTypes);
-                }
+                return;
             }
 
-            foreach (var field in type.GetFields(BindingFlags.Public | BindingFlags.Instance))
-            {
-                if (field.IsLiteral || field.IsInitOnly)
-                {
-                    continue;
-                }
+            if (typeInfo.Kind != JsonTypeInfoKind.Object) return;
 
-                object memberValue = field.GetValue(value);
-                if (memberValue == null && IsRequiredMember(field.FieldType))
-                {
-                    throw new InvalidOperationException($"Required structured response member '{field.Name}' is null.");
-                }
-                if (memberValue != null)
-                {
-                    ValidateRequiredMembers(memberValue, field.FieldType, visitedTypes);
-                }
+            foreach (JsonPropertyInfo property in typeInfo.Properties)
+            {
+                if (property.IsExtensionData || property.Set == null || property.Get == null) continue;
+                if (property.AttributeProvider is FieldInfo field && field.IsInitOnly) continue;
+
+                ValidateRuntimeMember(
+                    property.Get(value),
+                    property.PropertyType,
+                    visitedTypes,
+                    $"Required structured response member '{property.Name}' is null.");
             }
         }
         finally
         {
-            // 離開此型別後從路徑移除，讓同型別的其他實例也能完整驗證。
             visitedTypes.Remove(type);
         }
     }
 #pragma warning restore S3776
 
-    private static bool IsRequiredMember(Type type)
+#pragma warning disable S3776 // reason: 遞迴沿產生的 schema shape 驗證成員，已有 schema 深度與型別路徑防護
+    private static void ValidateRequiredJsonMembers(JsonElement value, JsonElement schema)
     {
-        return Nullable.GetUnderlyingType(type) == null;
-    }
-
-    /// <summary>
-    /// 取得集合的元素型別：陣列取 <c>GetElementType</c>，
-    /// 泛型集合取其 <c>IEnumerable&lt;T&gt;</c> 的 <c>T</c>
-    ///（字典會取到 <c>KeyValuePair&lt;K,V&gt;</c>，為實值型別，不影響 null 判斷）。
-    /// 非泛型集合無從得知，回傳 null，呼叫端將 null 元素視為非法。
-    /// </summary>
-    private static Type GetCollectionElementType(Type type)
-    {
-        if (type == null) return null;
-        if (type.IsArray) return type.GetElementType();
-        if (type.IsGenericType)
+        if (value.ValueKind == JsonValueKind.Null)
         {
-            foreach (Type iface in type.GetInterfaces())
+            if (!SchemaAllowsNull(schema))
             {
-                if (iface.IsGenericType && iface.GetGenericTypeDefinition() == typeof(System.Collections.Generic.IEnumerable<>))
+                throw new InvalidOperationException("Required structured response value is null.");
+            }
+            return;
+        }
+        if (schema.ValueKind != JsonValueKind.Object) return;
+
+        if (schema.TryGetProperty("properties", out JsonElement properties) &&
+            properties.ValueKind == JsonValueKind.Object && value.ValueKind == JsonValueKind.Object)
+        {
+            if (schema.TryGetProperty("required", out JsonElement required) && required.ValueKind == JsonValueKind.Array)
+            {
+                foreach (JsonElement requiredName in required.EnumerateArray())
                 {
-                    return iface.GetGenericArguments()[0];
+                    string name = requiredName.GetString();
+                    bool found = false;
+                    JsonElement memberValue = default;
+                    foreach (JsonProperty inputProperty in value.EnumerateObject())
+                    {
+                        if (string.Equals(inputProperty.Name, name, StringComparison.OrdinalIgnoreCase))
+                        {
+                            found = true;
+                            memberValue = inputProperty.Value;
+                        }
+                    }
+
+                    if (!found)
+                    {
+                        throw new InvalidOperationException(
+                            $"Required structured response member '{name}' is missing.");
+                    }
+
+                    if (properties.TryGetProperty(name, out JsonElement memberSchema))
+                    {
+                        ValidateRequiredJsonMembers(memberValue, memberSchema);
+                    }
                 }
             }
+
+            if (schema.TryGetProperty("additionalProperties", out JsonElement additionalProperties) &&
+                additionalProperties.ValueKind == JsonValueKind.Object)
+            {
+                foreach (JsonProperty inputProperty in value.EnumerateObject())
+                {
+                    if (!properties.TryGetProperty(inputProperty.Name, out _))
+                    {
+                        ValidateRequiredJsonMembers(inputProperty.Value, additionalProperties);
+                    }
+                }
+            }
+            return;
         }
-        return null;
+
+        if (schema.TryGetProperty("items", out JsonElement items) && value.ValueKind == JsonValueKind.Array)
+        {
+            foreach (JsonElement item in value.EnumerateArray()) ValidateRequiredJsonMembers(item, items);
+            return;
+        }
+
+        if (schema.TryGetProperty("additionalProperties", out JsonElement valueSchema) &&
+            valueSchema.ValueKind == JsonValueKind.Object && value.ValueKind == JsonValueKind.Object)
+        {
+            foreach (JsonProperty entry in value.EnumerateObject())
+            {
+                ValidateRequiredJsonMembers(entry.Value, valueSchema);
+            }
+        }
+    }
+#pragma warning restore S3776
+
+    private static void ValidateRuntimeMember(
+        object value,
+        Type type,
+        HashSet<Type> visitedTypes,
+        string nullErrorMessage)
+    {
+        if (value == null)
+        {
+            if (type != null && Nullable.GetUnderlyingType(type) != null) return;
+            throw new InvalidOperationException(nullErrorMessage);
+        }
+
+        ValidateRequiredMembers(value, type ?? value.GetType(), visitedTypes);
+    }
+
+    private static IEnumerable<object> EnumerateDictionaryValues(object value)
+    {
+        if (value is IDictionary dictionary)
+        {
+            foreach (DictionaryEntry entry in dictionary) yield return entry.Value;
+            yield break;
+        }
+
+        if (value is IEnumerable enumerable)
+        {
+            foreach (object entry in enumerable)
+            {
+                PropertyInfo valueProperty = entry?.GetType().GetProperty("Value");
+                if (valueProperty != null) yield return valueProperty.GetValue(entry, null);
+            }
+        }
+    }
+
+    private static bool SchemaAllowsNull(JsonElement schema)
+    {
+        if (!schema.TryGetProperty("type", out JsonElement type)) return false;
+        if (type.ValueKind == JsonValueKind.String)
+        {
+            return string.Equals(type.GetString(), "null", StringComparison.Ordinal);
+        }
+        if (type.ValueKind == JsonValueKind.Array)
+        {
+            foreach (JsonElement candidate in type.EnumerateArray())
+            {
+                if (candidate.ValueKind == JsonValueKind.String &&
+                    string.Equals(candidate.GetString(), "null", StringComparison.Ordinal)) return true;
+            }
+        }
+        return false;
     }
 }
 #pragma warning restore S101, S2342

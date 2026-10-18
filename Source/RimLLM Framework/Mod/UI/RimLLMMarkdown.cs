@@ -1,7 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using Markdig;
+using Markdig.Extensions.Tables;
 using Markdig.Syntax;
 using Markdig.Syntax.Inlines;
 
@@ -23,11 +26,17 @@ public static class RimLLMMarkdown
     private const string ColorTagClose = "</color>";
     private const string BoldOpenMarker = "\uE000";
     private const string BoldCloseMarker = "\uE001";
+    /// <summary>欄位分隔符。用全形直線而非 ASCII <c>|</c>，讓渲染結果一眼看出是欄位分隔而非殘留的 markdown。</summary>
+    private const string CellSeparator = "｜";
     private static readonly TimeSpan RegexTimeout = TimeSpan.FromSeconds(1);
 
     private static readonly int[] HeadingSizes = [20, 17, 15];
 
-    private static readonly MarkdownPipeline Pipeline = new MarkdownPipelineBuilder().Build();
+    // 表格解析交給 Markdig 的 PipeTables 擴充：只有套件才認得圍籬、行內碼與縮排程式碼。
+    // 自己用正則掃 |---| 會把程式碼區塊裡的表格誤判成表格，還會破壞 <color> 配對。
+    private static readonly MarkdownPipeline Pipeline = new MarkdownPipelineBuilder()
+        .UsePipeTables()
+        .Build();
 
     private static readonly System.Text.RegularExpressions.Regex BoldPattern =
         new(@"\*\*\s*([^\*\n]+?)\s*\*\*", System.Text.RegularExpressions.RegexOptions.Compiled, RegexTimeout);
@@ -56,23 +65,57 @@ public static class RimLLMMarkdown
     /// 預先處理 Markdown 中的粗體標記。
     /// 繁簡中文環境下，全形括號或標點與粗體星號相鄰（例如 "**快速排序法（Quick Sort）**的"）時，
     /// 會觸發 CommonMark 規範中關於標點符號側翼（flanking delimiter）的判定缺陷而拒絕閉合。
-    /// 本方法在排除 <see cref="ProtectedRegion"/>（圍籬、行內碼、縮排程式碼）後，
-    /// 將一般文本中的 **內容** 預先轉換為 Unity 原生支援的 &lt;b&gt;內容&lt;/b&gt;。
+    /// 本方法在排除 <see cref="ProtectedRegion"/>（圍籬、行內碼、縮排程式碼）與
+    /// <paramref name="extraSpans"/>（表格）後，將一般文本中的 **內容** 預先轉換為
+    /// Unity 原生支援的 &lt;b&gt;內容&lt;/b&gt;。
     /// </summary>
-    private static string PreprocessMarkdown(string markdown)
+    private static string PreprocessMarkdown(string markdown, List<(int Start, int End)> extraSpans = null)
     {
         if (string.IsNullOrEmpty(markdown)) return markdown;
 
-        var sb = new StringBuilder(markdown.Length + 32);
-        int last = 0;
+        var spans = new List<(int Start, int End)>();
         foreach (System.Text.RegularExpressions.Match region in ProtectedRegion.Matches(markdown))
         {
-            sb.Append(BoldPattern.Replace(markdown.Substring(last, region.Index - last), BoldOpenMarker + "$1" + BoldCloseMarker));
-            sb.Append(region.Value);
-            last = region.Index + region.Length;
+            spans.Add((region.Index, region.Index + region.Length));
+        }
+        if (extraSpans != null) spans.AddRange(extraSpans);
+        // 兩種來源可能重疊（表格寫在程式碼圍籬內），排序後靠 last 擋掉重疊部分。
+        spans.Sort(static (a, b) => a.Start.CompareTo(b.Start));
+
+        var sb = new StringBuilder(markdown.Length + 32);
+        int last = 0;
+        foreach ((int start, int end) in spans)
+        {
+            if (start < last) continue;
+            sb.Append(BoldPattern.Replace(markdown.Substring(last, start - last), BoldOpenMarker + "$1" + BoldCloseMarker));
+            sb.Append(markdown, start, end - start);
+            last = end;
         }
         sb.Append(BoldPattern.Replace(markdown.Substring(last), BoldOpenMarker + "$1" + BoldCloseMarker));
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// 找出所有表格在原始文字中的位置。
+    /// 表格欄位裡的 <c>**</c> 常是語意標記（熱情等級、版本號），不是粗體，
+    /// 因此整張表都不做粗體預轉換，欄位文字直接取原始切片保留。
+    /// </summary>
+    private static List<(int Start, int End)> CollectTableSpans(string markdown)
+    {
+        var spans = new List<(int, int)>();
+        if (markdown.IndexOf('|') < 0) return spans;
+
+        CollectTableSpans(Markdown.Parse(markdown, Pipeline), spans);
+        return spans;
+    }
+
+    private static void CollectTableSpans(ContainerBlock container, List<(int Start, int End)> spans)
+    {
+        foreach (Block block in container)
+        {
+            if (block is Table table) spans.Add((table.Span.Start, table.Span.End));
+            if (block is ContainerBlock child) CollectTableSpans(child, spans);
+        }
     }
 
     /// <summary>
@@ -142,26 +185,45 @@ public static class RimLLMMarkdown
         if (markdown == null) return null;
         if (markdown.Length == 0) return string.Empty;
 
-        string preprocessed = PreprocessMarkdown(SanitizeUnityTags(markdown, preserveTrustedColorWrapper: true));
+        string sanitized = SanitizeUnityTags(markdown, preserveTrustedColorWrapper: true);
+        // 表格由 Markdig 辨識後，把整張表的範圍一併排除在粗體預轉換之外：
+        // 欄位裡的 ** 常是語意標記（熱情等級、版本號），不是粗體。
+        string preprocessed = PreprocessMarkdown(sanitized, CollectTableSpans(sanitized));
         MarkdownDocument document = Markdown.Parse(preprocessed, Pipeline);
         var sb = new StringBuilder(preprocessed.Length + 64);
-        var renderer = new UnityRichTextRenderer(sb);
+        var renderer = new UnityRichTextRenderer(sb, preprocessed);
         renderer.Render(document);
+
         return sb.ToString()
             .Replace(BoldOpenMarker, "<b>")
             .Replace(BoldCloseMarker, "</b>")
             .TrimEnd('\r', '\n');
     }
 
+    /// <summary>
+    /// 欄位文字取自原始 markdown 切片，而非解析後的 inline 樹。
+    /// 表格是資料：欄位裡的 <c>*</c> / <c>**</c> 是語意標記而非強調，
+    /// 讓 Markdig 解析只會把相鄰的星號配成一組並套上粗體。
+    /// </summary>
+    private static string CellText(TableCell cell, string source)
+    {
+        string raw = source.Substring(cell.Span.Start, cell.Span.Length).Trim();
+        // 取的是原始切片，因此 \| 要自己還原；跳脫直線若不還原會變成多餘的反斜線。
+        raw = raw.Replace("\\|", "|");
+        return raw.Replace("<", "＜").Replace(">", "＞");
+    }
+
     private sealed class UnityRichTextRenderer
     {
         private readonly StringBuilder _sb;
+        private readonly string _source;
         private int _listDepth;
         private static readonly char[] NewlineSeparator = ['\n'];
 
-        public UnityRichTextRenderer(StringBuilder sb)
+        public UnityRichTextRenderer(StringBuilder sb, string source)
         {
             _sb = sb;
+            _source = source;
         }
 
         public void Render(MarkdownDocument document)
@@ -195,6 +257,9 @@ public static class RimLLMMarkdown
                     break;
                 case ListBlock list:
                     RenderList(list);
+                    break;
+                case Table table:
+                    RenderTable(table);
                     break;
                 case ListItemBlock listItem:
                     RenderListItem(listItem);
@@ -263,7 +328,7 @@ public static class RimLLMMarkdown
         private void RenderQuote(QuoteBlock quote)
         {
             var subSb = new StringBuilder();
-            var subRenderer = new UnityRichTextRenderer(subSb);
+            var subRenderer = new UnityRichTextRenderer(subSb, _source);
             bool firstChild = true;
             foreach (Block child in quote)
             {
@@ -301,6 +366,84 @@ public static class RimLLMMarkdown
         private void RenderListItem(ListItemBlock listItem)
         {
             RenderListItemInternal(listItem, false, 1);
+        }
+
+        /// <summary>表格第一行在原始文字中的行首位置；Span.Start 指向第一個非空白字元。</summary>
+        private int TableLineStart(Table table)
+        {
+            int i = table.Span.Start;
+            int lineStart = i > 0 ? _source.LastIndexOf('\n', i - 1) : -1;
+            return lineStart < 0 ? 0 : lineStart + 1;
+        }
+
+        /// <summary>表格第一行是否以 4 空格或 tab 縮排（GFM 中 indented code 優先於表格）。</summary>
+        private bool StartsIndented(Table table)
+        {
+            int i = table.Span.Start;
+            if (i >= _source.Length) return false;
+            if (_source[i] == '\t') return true;
+
+            int lineStart = TableLineStart(table);
+            int spaces = 0;
+            for (int k = lineStart; k < i && k < _source.Length && _source[k] == ' '; k++) spaces++;
+            return spaces >= 4;
+        }
+
+        private void RenderTableAsCode(Table table)
+        {
+            int lineStart = TableLineStart(table);
+            string raw = _source.Substring(lineStart, table.Span.End - lineStart).Replace("\r\n", "\n");
+            string[] lines = raw.Split('\n');
+
+            _sb.Append(ColorTagOpen).Append(CodeColor).Append('>');
+            for (int i = 0; i < lines.Length; i++)
+            {
+                if (i > 0) _sb.Append('\n');
+                _sb.Append("  ").Append(EscapeCode(lines[i]));
+            }
+            _sb.Append(ColorTagClose);
+        }
+
+        /// <summary>
+        /// 畫成「欄名行 + 每列一行的項目符號列」。
+        ///
+        /// 舊版 IMGUI 的 rich text 沒有欄寬對齊（<c>GUIStyle.CalcSize</c> 要 Unity 端才拿得到，
+        /// 此類是純邏輯層），因此不畫表格框線，改用全形 <c>｜</c> 分隔欄位：
+        /// 視覺上足以分辨欄位，又不會產生因字型不等寬而全部錯位的假框線。
+        /// </summary>
+        private void RenderTable(Table table)
+        {
+            // PipeTables 比縮排程式碼優先：段落後接的 4 空格縮排行本應是段落延續，
+            // 擴充卻把它開成表格（純 CommonMark 管線解析為單一段落）。這裡還原成程式碼外觀。
+            if (StartsIndented(table))
+            {
+                RenderTableAsCode(table);
+                return;
+            }
+
+            bool wroteAny = false;
+            foreach (TableRow row in table)
+            {
+                var cells = new List<string>();
+                foreach (TableCell cell in row)
+                {
+                    cells.Add(CellText(cell, _source));
+                }
+                if (cells.Count == 0) continue;
+
+                if (wroteAny) _sb.Append('\n');
+                if (row.IsHeader)
+                {
+                    _sb.Append(ColorTagOpen).Append(MutedColor).Append('>')
+                       .Append(string.Join(CellSeparator, cells))
+                       .Append(ColorTagClose);
+                }
+                else
+                {
+                    _sb.Append("• ").Append(string.Join(CellSeparator, cells));
+                }
+                wroteAny = true;
+            }
         }
 
         private void RenderListItemInternal(ListItemBlock listItem, bool isOrdered, int index)

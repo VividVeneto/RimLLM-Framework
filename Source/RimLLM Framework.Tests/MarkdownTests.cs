@@ -286,4 +286,157 @@ public class MarkdownTests
         string result = RimLLMMarkdown.ToRichText(input);
         StringAssert.Contains("int** ptr = nullptr;", result);
     }
+
+    [Test]
+    public void PipeTableBecomesHeaderLineAndBulletRows()
+    {
+        const string input = "| 姓名 | 年齡 |\n|------|------|\n| Fujita | 61 |\n| Kups | 19 |";
+        string result = RimLLMMarkdown.ToRichText(input);
+
+        ClassicAssert.AreEqual(
+            "<color=#9aa0a6>姓名｜年齡</color>\n• Fujita｜61\n• Kups｜19",
+            result);
+    }
+
+    [Test]
+    public void TableDelimiterRowIsNeverRendered()
+    {
+        // 舊版管線讓 |----|----| 這一列原樣輸出，正是使用者看到的雜訊。
+        string result = RimLLMMarkdown.ToRichText("| a | b |\n|:----|----:|\n| 1 | 2 |");
+        ClassicAssert.IsFalse(result.Contains("-----"), "分隔線不應出現在輸出。");
+        ClassicAssert.IsFalse(result.Contains("|:"), "對齊冒號不應殘留。");
+        StringAssert.Contains("<color=#9aa0a6>a｜b</color>", result);
+        StringAssert.Contains("• 1｜2", result);
+    }
+
+    [Test]
+    public void StarsInsideTableCellsAreNotPairedAcrossColumns()
+    {
+        // 模型用 ** 表示「主熱情」層級。若表格被當成單一段落，粗體預轉換會把
+        // 「醫療 10**；射擊 12**」配成一組，變成 醫療 10<b>；射擊 12</b>。
+        const string input = "| 姓名 | 熱情 |\n|------|------|\n| Fujita | 醫療 10**；射擊 12**；智識 9* |";
+        string result = RimLLMMarkdown.ToRichText(input);
+
+        StringAssert.Contains("醫療 10**；射擊 12**；智識 9*", result);
+        ClassicAssert.IsFalse(result.Contains("<b>"), "欄位內不應產生粗體標籤。");
+    }
+
+    [Test]
+    public void BoldOutsideTableStillWorks()
+    {
+        const string input = "**標題**\n\n| a | b |\n|----|----|\n| 1 | 2 |";
+        string result = RimLLMMarkdown.ToRichText(input);
+
+        StringAssert.Contains("<b>標題</b>", result);
+        StringAssert.Contains("• 1｜2", result);
+    }
+
+    [Test]
+    public void MultipleTablesInOneReplyAreEachRendered()
+    {
+        const string input = "| a |\n|---|\n| 1 |\n\n文字\n\n| b |\n|---|\n| 2 |";
+        string result = RimLLMMarkdown.ToRichText(input);
+
+        StringAssert.Contains("<color=#9aa0a6>a</color>\n• 1", result);
+        StringAssert.Contains("<color=#9aa0a6>b</color>\n• 2", result);
+        StringAssert.Contains("文字", result);
+    }
+
+    [Test]
+    public void PipeWithoutDelimiterRowIsNotTreatedAsTable()
+    {
+        // 只有欄位線、沒有 |---| 對齊列時不該被當表格吃掉。
+        string result = RimLLMMarkdown.ToRichText("a | b\nc | d");
+        StringAssert.Contains("a | b", result);
+        StringAssert.Contains("c | d", result);
+    }
+
+    [Test]
+    public void DelimiterRowWithoutHeaderIsNotTreatedAsTable()
+    {
+        string result = RimLLMMarkdown.ToRichText("前文\n----|----");
+        StringAssert.Contains("前文", result);
+        StringAssert.Contains("----|----", result);
+    }
+
+    [Test]
+    public void EscapedPipeInsideCellDoesNotCreateExtraColumn()
+    {
+        const string input = "| 道具 | 備註 |\n|------|------|\n| 劍 | a \\| b |";
+        string result = RimLLMMarkdown.ToRichText(input);
+        StringAssert.Contains("a | b", result);
+    }
+
+    [Test]
+    public void UnityTagsInsideTableCellsAreEscaped()
+    {
+        const string input = "| 名稱 | 備註 |\n|------|------|\n| 甲 | <b>粗體</b> |";
+        string result = RimLLMMarkdown.ToRichText(input);
+        StringAssert.Contains("＜b＞粗體＜/b＞", result);
+    }
+
+    [Test]
+    public void SingleColumnTableIsRendered()
+    {
+        // GFM 允許單欄表格。
+        string result = RimLLMMarkdown.ToRichText("| 注意 |\n|------|\n| 這是提示 |");
+        ClassicAssert.AreEqual("<color=#9aa0a6>注意</color>\n• 這是提示", result);
+    }
+
+    [Test]
+    public void TableInsideFencedCodeStaysCode()
+    {
+        // 迴歸：自行用正則掃 |---| 時，程式碼圍籬內的表格會被誤判成表格，
+        // 而且產生的 <color> 未閉合會讓後續文字全部染色。
+        const string input = "圍籬：\n```\n| a | b |\n|---|---|\n| 1 | 2 |\n```";
+        string result = RimLLMMarkdown.ToRichText(input);
+
+        StringAssert.Contains("<color=#4ec9b0>", result);
+        StringAssert.Contains("| a | b |", result);
+        StringAssert.Contains("|---|---|", result);
+        ClassicAssert.IsFalse(result.Contains("<color=#9aa0a6>"), "圍籬內不應出現表格欄名。");
+        ClassicAssert.AreEqual(result.Split("<color=").Length - 1, result.Split("</color>").Length - 1,
+            "color 標籤必須成對，否則後續文字會被染色。");
+    }
+
+    [Test]
+    public void IndentedTableInsideCodeBlockStaysCode()
+    {
+        const string input = "    | a | b |\n    |---|---|\n    | 1 | 2 |";
+        string result = RimLLMMarkdown.ToRichText(input);
+
+        StringAssert.Contains("<color=#4ec9b0>", result);
+        ClassicAssert.IsFalse(result.Contains("<color=#9aa0a6>"), "縮排程式碼不應被當成表格。");
+    }
+
+    [Test]
+    public void TableLikeIndentedLinesAfterParagraphStayCode()
+    {
+        // PipeTables 比 indented code 優先：段落後的 4 空格縮排行本應是段落延續，
+        // Markdig 卻開成表格。渲染層要把這個語意還原。
+        const string input = "縮排：\n    | a | b |\n    |---|---|\n    | 1 | 2 |";
+        string result = RimLLMMarkdown.ToRichText(input);
+
+        StringAssert.Contains("<color=#4ec9b0>", result);
+        ClassicAssert.IsFalse(result.Contains("<color=#9aa0a6>"), "縮排行不應被當成表格。");
+    }
+
+    [Test]
+    public void InlineCodeContainingPipesStaysCode()
+    {
+        const string input = "行內：`| a | b |` 與 `|---|---|`";
+        string result = RimLLMMarkdown.ToRichText(input);
+
+        StringAssert.Contains("<color=#4ec9b0>| a | b |</color>", result);
+        StringAssert.Contains("<color=#4ec9b0>|---|---|</color>", result);
+    }
+
+    [Test]
+    public void EscapedPipeInsideCellIsUnescaped()
+    {
+        const string input = "| 道具 | 備註 |\n|---|---|\n| 劍 | a \\| b |";
+        string result = RimLLMMarkdown.ToRichText(input);
+        StringAssert.Contains("a | b", result);
+        ClassicAssert.IsFalse(result.Contains("a \\| b"), "跳脫反斜線不應殘留。");
+    }
 }

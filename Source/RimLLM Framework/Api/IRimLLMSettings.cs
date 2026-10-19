@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Microsoft.Extensions.AI;
 
@@ -189,23 +190,28 @@ public interface IRimLLMSettings
     /// 必須讀得到該供應商自己的金鑰，而不是啟用中那一家的。
     /// </summary>
     /// <remarks>
-    /// 預設實作退回啟用中供應商的金鑰：既有的外部設定實作者只維護「啟用中供應商」一份資料，
-    /// 補上預設實作才不會讓它們在執行期炸掉。框架內建的
-    /// <c>RimLLMFrameworkSettings</c> 覆寫了這三個方法，逐供應商各自取值。
+    /// 預設實作只在 <paramref name="providerId"/> 指向啟用中的供應商時才回傳啟用中供應商的值，
+    /// 其他供應商一律回空字串：既有的外部設定實作者只維護「啟用中供應商」一份資料，
+    /// 補上預設實作才不會讓它們在執行期炸掉；但若把啟用中供應商的金鑰錯當成別家供應商的，
+    /// 請求會打到錯誤的主機、用量也會記到錯誤的供應商帳上，因此寧可回空字串讓呼叫被拒絕。
+    /// 框架內建的 <c>RimLLMFrameworkSettings</c> 覆寫了這三個方法，逐供應商各自取值。
     /// </remarks>
-    string GetDecisionApiKey(string providerId) => DecisionApiKey;
+    string GetDecisionApiKey(string providerId) =>
+        string.Equals(providerId, DecisionProvider, StringComparison.Ordinal) ? DecisionApiKey : "";
 
     /// <summary>
     /// 獲取指定決策供應商的模型名稱（未設定時由供應商目錄提供預設值）。
     /// </summary>
     /// <inheritdoc cref="GetDecisionApiKey" path="/remarks"/>
-    string GetDecisionModel(string providerId) => DecisionModel;
+    string GetDecisionModel(string providerId) =>
+        string.Equals(providerId, DecisionProvider, StringComparison.Ordinal) ? DecisionModel : "";
 
     /// <summary>
     /// 獲取指定決策供應商的端點（未設定時由供應商目錄提供預設值）。
     /// </summary>
     /// <inheritdoc cref="GetDecisionApiKey" path="/remarks"/>
-    string GetDecisionEndpoint(string providerId) => DecisionEndpoint;
+    string GetDecisionEndpoint(string providerId) =>
+        string.Equals(providerId, DecisionProvider, StringComparison.Ordinal) ? DecisionEndpoint : "";
 
     /// <summary>
     /// 歷史請求日誌記錄清單。

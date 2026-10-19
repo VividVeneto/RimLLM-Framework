@@ -17,6 +17,8 @@ public sealed class DecisionAvailability
 
     /// <summary>
     /// 目前啟用的供應商 id；未啟用時為 <c>Disabled</c>。
+    /// 設定若指向已不存在的供應商 id，框架在載入時就會把它正規化回 <c>Disabled</c>，
+    /// 因此這個欄位不會出現無法使用的供應商 id。
     /// </summary>
     public string ProviderId { get; init; } = "";
 

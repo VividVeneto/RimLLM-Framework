@@ -17,6 +17,12 @@ namespace RimLLM_Framework.Manager.Services;
 internal sealed record DecisionEvaluation(JevResult Result, string ProviderId, string ModelName);
 
 /// <summary>
+/// 設定頁預覽某個決策供應商時要送出的參數。抓模型清單與連線測試共用同一組參數來源，
+/// 因此這三個值只由 <see cref="RimLLMDecisionService.GetPreviewArguments"/> 一處決定。
+/// </summary>
+internal sealed record DecisionPreviewArguments(string Endpoint, string Model, string ApiKey);
+
+/// <summary>
 /// 以 Kkdev92.Jev（TypeSafe System One / Jev）為後端的決策服務。
 /// 僅提供通用的 EvaluateAsync 與模型清單查詢；不內建任何情境判斷、分流或安全閘門。
 /// 所有失敗都收斂為 <see cref="RimLLMException"/>（對話與 embedding 的同一份契約），
@@ -57,7 +63,7 @@ public class RimLLMDecisionService
     private static HttpClient CreateHttpClient(string endpoint)
     {
         // JevClient 自己管理 deadline；HttpClient 的逾時必須關掉，否則會比 SDK 先中斷。
-        HttpMessageHandler handler = MessageHandlerFactory(endpoint);
+        HttpMessageHandler handler = MessageHandlerFactory();
         if (DecisionEndpointRouting.IsPlaintext(endpoint))
         {
             // SDK 組出的是 https URI，這裡在送上線前改寫回玩家設定的明文端點。
@@ -73,8 +79,8 @@ public class RimLLMDecisionService
     /// 建立送出決策請求的底層 HTTP 處理器。預設走真實網路；
     /// 測試以這個內部接縫換掉它，讓假端點不必連網就能攔截請求並回應。
     /// </summary>
-    internal static Func<string, HttpMessageHandler> MessageHandlerFactory { get; set; } =
-        _ => new SocketsHttpHandler { AllowAutoRedirect = false };
+    internal static Func<HttpMessageHandler> MessageHandlerFactory { get; set; } =
+        () => new SocketsHttpHandler { AllowAutoRedirect = false };
 
     private JevClientOptions CreateOptions(string endpoint, string model, string apiKey, string providerId = null)
     {
@@ -90,6 +96,20 @@ public class RimLLMDecisionService
             Credential = new SettingsCredential(() => apiKey ?? ""),
             Timeout = TimeSpan.FromSeconds(_settings.ApiTimeout > 0 ? _settings.ApiTimeout : 30)
         };
+    }
+
+    /// <summary>
+    /// 解析指定供應商要用的模型名稱：逐次覆寫優先，其次供應商自己的設定，
+    /// 兩者都沒有就用供應商目錄的預設值。
+    /// </summary>
+    private string ResolveModel(string providerId, string modelOverride)
+    {
+        string model = !string.IsNullOrWhiteSpace(modelOverride)
+            ? modelOverride
+            : _settings.GetDecisionModel(providerId);
+        return string.IsNullOrWhiteSpace(model)
+            ? RimLLMDecisionProviderCatalog.GetDefaultModel(providerId)
+            : model;
     }
 
     /// <summary>
@@ -134,14 +154,59 @@ public class RimLLMDecisionService
             apiKey = DecisionEndpointRouting.PlaintextPlaceholderKey;
         }
 
-        string model = !string.IsNullOrWhiteSpace(modelOverride)
-            ? modelOverride
-            : _settings.GetDecisionModel(resolvedProviderId);
-        if (string.IsNullOrWhiteSpace(model))
+        return new DecisionConnection(
+            resolvedProviderId, endpoint, ResolveModel(resolvedProviderId, modelOverride), apiKey);
+    }
+
+    /// <summary>
+    /// 目前決策供應商的可用狀態。純查詢，不發任何網路請求。
+    /// 未啟用決策供應商時回報 <c>Enabled = false</c>，不擲例外——
+    /// 「玩家還沒設定」是查詢結果，不是錯誤。
+    /// </summary>
+    internal DecisionAvailability GetAvailability()
+    {
+        string providerId = _settings.DecisionProvider;
+        if (string.IsNullOrEmpty(providerId) ||
+            string.Equals(providerId, RimLLMDecisionProviderCatalog.Disabled, StringComparison.Ordinal) ||
+            !RimLLMDecisionProviderCatalog.TryGet(providerId, out _))
         {
-            model = RimLLMDecisionProviderCatalog.GetDefaultModel(resolvedProviderId);
+            // 設定若指向已不存在的供應商 id（自訂設定實作者才可能發生；內建設定在載入時
+            // 就會把它正規化回 Disabled），同樣視為「沒有可用的決策供應商」。
+            return new DecisionAvailability
+            {
+                Enabled = false,
+                ProviderId = RimLLMDecisionProviderCatalog.Disabled,
+                Model = "",
+                HasKey = false,
+                RequiresKey = false,
+                Endpoint = ""
+            };
         }
-        return new DecisionConnection(resolvedProviderId, endpoint, model, apiKey);
+
+        string endpoint = NormalizeBaseEndpoint(_settings.GetDecisionEndpoint(providerId), providerId);
+        return new DecisionAvailability
+        {
+            Enabled = true,
+            ProviderId = providerId,
+            Model = ResolveModel(providerId, null),
+            // 只回報「有沒有金鑰」，金鑰本身絕不外洩。
+            HasKey = !string.IsNullOrWhiteSpace(_settings.GetDecisionApiKey(providerId)),
+            // 明文本機端點是玩家自架的服務，可以不填金鑰。
+            RequiresKey = !DecisionEndpointRouting.IsPlaintext(endpoint),
+            Endpoint = endpoint
+        };
+    }
+
+    /// <summary>
+    /// 設定頁預覽某個供應商（可能尚未啟用）時要送出的端點、模型與金鑰。
+    /// 設定頁的「抓取模型清單」與「連線測試」都走這裡，參數來源只有一處。
+    /// </summary>
+    internal DecisionPreviewArguments GetPreviewArguments(string providerId)
+    {
+        return new DecisionPreviewArguments(
+            _settings.GetDecisionEndpoint(providerId),
+            ResolveModel(providerId, null),
+            _settings.GetDecisionApiKey(providerId));
     }
 
     /// <summary>

@@ -44,58 +44,55 @@ public static class DecisionSettingsDrawer
 
     /// <summary>
     /// 每一個本機決策服務的探測候選。
-    /// 決策端點要走 System One 的 /v1/models；Ollama 另外也提供 /api/tags，
-    /// 兩者都試一次，服務活著就抓得到。
+    /// 位址取自供應商目錄的預設端點，UI 不再另外抄一份——
+    /// 改了目錄的預設端點，探測跟著走。
     /// </summary>
     private static readonly Dictionary<string, LocalEndpointProbe.Target[]> LocalProbeTargets =
-        new(StringComparer.Ordinal)
+        BuildLocalProbeTargets();
+
+    private static Dictionary<string, LocalEndpointProbe.Target[]> BuildLocalProbeTargets()
+    {
+        return new Dictionary<string, LocalEndpointProbe.Target[]>(StringComparer.Ordinal)
         {
-            [RimLLMDecisionProviderCatalog.Ollama] =
-            [
-                new LocalEndpointProbe.Target
-                {
-                    Name = "Ollama",
-                    BaseUrl = "http://localhost:11434",
-                    TestUrl = "http://localhost:11434/v1/models"
-                },
-                new LocalEndpointProbe.Target
-                {
-                    Name = "Ollama",
-                    BaseUrl = "http://localhost:11434",
-                    TestUrl = "http://localhost:11434/api/tags"
-                }
-            ],
-            [RimLLMDecisionProviderCatalog.Unsloth] =
-            [
-                new LocalEndpointProbe.Target
-                {
-                    Name = "Unsloth",
-                    BaseUrl = "http://localhost:8888",
-                    TestUrl = "http://localhost:8888/v1/models"
-                }
-            ],
-            [RimLLMDecisionProviderCatalog.Local] =
-            [
-                new LocalEndpointProbe.Target
-                {
-                    Name = "Local",
-                    BaseUrl = "http://localhost:8000",
-                    TestUrl = "http://localhost:8000/v1/models"
-                },
-                new LocalEndpointProbe.Target
-                {
-                    Name = "Ollama",
-                    BaseUrl = "http://localhost:11434",
-                    TestUrl = "http://localhost:11434/v1/models"
-                },
-                new LocalEndpointProbe.Target
-                {
-                    Name = "Unsloth",
-                    BaseUrl = "http://localhost:8888",
-                    TestUrl = "http://localhost:8888/v1/models"
-                }
-            ]
+            [RimLLMDecisionProviderCatalog.Ollama] = ProbeTargetsFor(RimLLMDecisionProviderCatalog.Ollama),
+            [RimLLMDecisionProviderCatalog.Unsloth] = ProbeTargetsFor(RimLLMDecisionProviderCatalog.Unsloth),
+            // 通用本機項沒有固定的服務商，順便看看常見的本機決策服務有沒有開著。
+            [RimLLMDecisionProviderCatalog.Local] = ProbeTargetsFor(
+                RimLLMDecisionProviderCatalog.Local,
+                RimLLMDecisionProviderCatalog.Ollama,
+                RimLLMDecisionProviderCatalog.Unsloth)
         };
+    }
+
+    /// <summary>
+    /// 某個本機供應商的探測候選。決策端點要走 System One 的 /v1/models；
+    /// Ollama 另外也提供 /api/tags，兩個都試一次，服務活著就抓得到。
+    /// </summary>
+    private static LocalEndpointProbe.Target[] ProbeTargetsFor(string providerId, params string[] alsoTry)
+    {
+        var targets = new List<LocalEndpointProbe.Target>();
+        foreach (string id in new[] { providerId }.Concat(alsoTry))
+        {
+            string origin = RimLLMDecisionProviderCatalog.GetDefaultEndpoint(id);
+            targets.Add(new LocalEndpointProbe.Target
+            {
+                Name = id,
+                BaseUrl = origin,
+                TestUrl = origin + "/v1/models"
+            });
+
+            if (id == RimLLMDecisionProviderCatalog.Ollama)
+            {
+                targets.Add(new LocalEndpointProbe.Target
+                {
+                    Name = id,
+                    BaseUrl = origin,
+                    TestUrl = origin + "/api/tags"
+                });
+            }
+        }
+        return targets.ToArray();
+    }
 
     /// <summary>該供應商目前的端點是否走明文 HTTP（玩家自架的本機服務）。</summary>
     private static bool IsPlaintextEndpoint(string providerId)
@@ -596,9 +593,8 @@ public static class DecisionSettingsDrawer
         Fetching[providerId] = true;
         FetchStatus[providerId] = "RimLLM_Fetching".Translate();
 
-        string endpoint = Settings.GetDecisionEndpoint(providerId);
-        string model = Settings.GetDecisionModel(providerId);
-        string apiKey = Settings.GetDecisionApiKey(providerId);
+        // 端點、模型與金鑰只由服務這裡決定，避免設定頁兩處各抄一份。
+        DecisionPreviewArguments args = new RimLLMDecisionService(Settings).GetPreviewArguments(providerId);
 
         Task.Run(async () =>
         {
@@ -606,7 +602,7 @@ public static class DecisionSettingsDrawer
             try
             {
                 IReadOnlyList<Kkdev92.Jev.JevModel> models = await new RimLLMDecisionService(Settings)
-                    .FetchModelsAsync(endpoint, model, apiKey)
+                    .FetchModelsAsync(args.Endpoint, args.Model, args.ApiKey)
                     .ConfigureAwait(false);
 
                 applyResult = () =>
@@ -662,9 +658,8 @@ public static class DecisionSettingsDrawer
         Testing[providerId] = true;
         TestStatus[providerId] = "RimLLM_DecisionTesting".Translate();
 
-        string endpoint = Settings.GetDecisionEndpoint(providerId);
-        string model = Settings.GetDecisionModel(providerId);
-        string apiKey = Settings.GetDecisionApiKey(providerId);
+        // 與抓取模型清單共用同一組參數來源。
+        DecisionPreviewArguments args = new RimLLMDecisionService(Settings).GetPreviewArguments(providerId);
 
         Task.Run(async () =>
         {
@@ -672,7 +667,7 @@ public static class DecisionSettingsDrawer
             try
             {
                 await new RimLLMDecisionService(Settings)
-                    .TestConnectionAsync(endpoint, model, apiKey)
+                    .TestConnectionAsync(args.Endpoint, args.Model, args.ApiKey)
                     .ConfigureAwait(false);
                 applyResult = () => "RimLLM_DecisionTestSuccess".Translate();
             }

@@ -234,7 +234,7 @@ JevResult result = await decisions.EvaluateAsync(speakerText, plan);
 double hostileProbability = result.Get(hostile).Probability;
 ```
 
-決策供應商預設為**停用**。設定頁列出 TypeSafe（Jev）、Clef、Liquid d1、Solar Decide、Kev、Tev1、Laya、Span、Microsoft Decision-1 與 OpenAI Decisions；模型、端點與金鑰都依供應商分開儲存，金鑰走和對話金鑰相同的 AES 加密，頁面可抓取供應商模型清單，連線測試會送出一個真正的一題決策。端點填 origin：客戶端會自動接上 `/v1/systemone`，因此任何相容 System One 的閘道都能用。決策呼叫和對話、embedding 共用呼叫者記錄、防濫用節流與每日 token 預算，錯誤契約也一致：一律以 `RimLLMException`（附 `LLMError` 代碼）呈現（401 對應 `InvalidKey`、429 對應 `RateLimit`、5xx 對應 `ProviderOffline`、SDK 逾時對應 `Timeout`、連不上對應 `NetworkError`），呼叫端取消維持 `OperationCanceledException`；未啟用供應商或缺金鑰會在送出前就以 `RimLLMException` 拒絕。服務本身不內建政策或路由：計畫與「機率代表什麼」都由呼叫端決定。
+決策供應商預設為**停用**。設定頁列出 TypeSafe（Jev）、Clef、Liquid d1、Solar Decide、Kev、Tev1、Laya、Span、Microsoft Decision-1 與 OpenAI Decisions；模型、端點與金鑰都依供應商分開儲存，金鑰走和對話金鑰相同的 AES 加密，頁面可抓取供應商模型清單，連線測試會送出一個真正的一題決策。端點填 origin：客戶端會自動接上 `/v1/systemone`，因此任何相容 System One 的閘道都能用。決策呼叫和對話、embedding 共用呼叫者記錄、防濫用節流與每日 token 預算，錯誤契約也一致：一律以 `RimLLMException`（附 `LLMError` 代碼）呈現（401 對應 `InvalidKey`、429 對應 `RateLimit`、5xx 對應 `ProviderOffline`、SDK 逾時對應 `Timeout`、連不上對應 `NetworkError`），呼叫端取消維持 `OperationCanceledException`；未啟用供應商、或 `https://` 端點缺金鑰，都會在送出前就以 `RimLLMException` 拒絕。服務本身不內建政策或路由：計畫與「機率代表什麼」都由呼叫端決定。
 
 #### 從自己的 Mod 選用決策供應商
 
@@ -255,7 +255,7 @@ double hostileProbability = result.Get(hostile).Probability;
 IReadOnlyList<string> models = await decisions.FetchModelsAsync("TypeSafe", cancellationToken);
 ```
 
-`GetDecisionAvailability` 是純查詢：不發任何網路請求、絕不外洩金鑰本身（只回報「有沒有金鑰」），沒有啟用決策供應商時回報 `Enabled = false` 而不擲例外。`EvaluateWithProviderAsync` 的端點、金鑰與模型都取自該供應商自己的設定，因此完全不會動到玩家的設定；缺金鑰、供應商 id 不存在或是 `Disabled` 標記，都會在送出任何請求之前就以 `RimLLMException`（`InvalidKey` 或 `Unknown`）拒絕，用量則記到實際服務該次請求的供應商帳上，而不是啟用中的那一家。`FetchModelsAsync` 回傳的是純字串的模型名稱（第三方 Mod 不必依賴 `Kkdev92.Jev` 的型別），且模型清單查詢不消耗推論額度。
+`GetDecisionAvailability` 是純查詢：不發任何網路請求、絕不外洩金鑰本身（只回報「有沒有金鑰」），沒有啟用決策供應商時回報 `Enabled = false` 而不擲例外。`EvaluateWithProviderAsync` 的端點、金鑰與模型都取自該供應商自己的設定，因此完全不會動到玩家的設定；供應商 id 不存在或是 `Disabled` 標記，都會在送出任何請求之前就以 `RimLLMException`（`Unknown`）拒絕，`https://` 端點缺金鑰則以 `InvalidKey` 拒絕（明文 `http://` 端點可以沒有金鑰，見下文）。用量則記到實際服務該次請求的供應商帳上，而不是啟用中的那一家。`FetchModelsAsync` 回傳的是純字串的模型名稱（第三方 Mod 不必依賴 `Kkdev92.Jev` 的型別），且模型清單查詢不消耗推論額度。
 
 #### 在自己的機器上跑決策模型
 
@@ -341,6 +341,8 @@ ChatResponse response = await client.GetResponseAsync(messages, options);
 | **做決策** | `RimLLMDecisionClient`、`DecisionAvailability` | 只有要用框架跑有型別的決策（是／否、選項、分數）時 |
 | **提供供應商** | `ILLMProvider`、`LLMProviderCapabilities`、`IRimLLMSettings` | 只有要用 `RimLLMProvider.RegisterProvider` 註冊自己的 LLM 後端時（`ILLMProvider` 直接產出標準 `Microsoft.Extensions.AI.IChatClient`） |
 | **診斷** | `TestResult`、`ProviderIds`、`LLMErrorMapper` | 連線測試、內建供應商 ID 常數、HTTP 狀態碼對照 |
+
+`ILLMProvider` 在 `RimLLM_Framework.Providers`，其餘 13 個在 `RimLLM_Framework` 本身。
 
 其餘的 `IChatClient`、`ChatMessage`、`ChatResponse`、`ChatResponseUpdate`、`IEmbeddingGenerator` 全都是 `Microsoft.Extensions.AI`。具體的 client 類別刻意設為 `internal`，所以沒有任何 RimLLM 的 client 型別需要你對接。
 

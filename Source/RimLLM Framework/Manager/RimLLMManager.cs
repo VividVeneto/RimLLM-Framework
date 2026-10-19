@@ -307,41 +307,7 @@ public class RimLLMManager
     /// </summary>
     internal DecisionAvailability GetDecisionAvailability()
     {
-        string providerId = _settings.DecisionProvider;
-        if (string.IsNullOrEmpty(providerId) ||
-            string.Equals(providerId, RimLLMDecisionProviderCatalog.Disabled, StringComparison.Ordinal) ||
-            !RimLLMDecisionProviderCatalog.TryGet(providerId, out _))
-        {
-            return new DecisionAvailability
-            {
-                Enabled = false,
-                ProviderId = RimLLMDecisionProviderCatalog.Disabled,
-                Model = "",
-                HasKey = false,
-                Endpoint = ""
-            };
-        }
-
-        string model = _settings.GetDecisionModel(providerId);
-        if (string.IsNullOrWhiteSpace(model))
-        {
-            model = RimLLMDecisionProviderCatalog.GetDefaultModel(providerId);
-        }
-
-        string endpoint = RimLLMDecisionService.NormalizeBaseEndpoint(
-            _settings.GetDecisionEndpoint(providerId), providerId);
-
-        return new DecisionAvailability
-        {
-            Enabled = true,
-            ProviderId = providerId,
-            Model = model,
-            // 只回報「有沒有金鑰」，金鑰本身絕不外洩。
-            HasKey = !string.IsNullOrWhiteSpace(_settings.GetDecisionApiKey(providerId)),
-            // 明文本機端點是玩家自架的服務，可以不填金鑰。
-            RequiresKey = !DecisionEndpointRouting.IsPlaintext(endpoint),
-            Endpoint = endpoint
-        };
+        return _decisionService.GetAvailability();
     }
 
     /// <summary>執行指定 Mod 的防濫用檢查（供 embedding / decision facade 於每次呼叫時使用）。</summary>

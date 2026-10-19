@@ -11,8 +11,13 @@ namespace RimLLM_Framework.Tests;
 [TestFixture]
 public class DecisionProviderTests
 {
+    /// <summary>
+    /// 目錄不變量：識別碼唯一、端點是絕對 origin、模型清單完整。
+    /// 遠端供應商一律 HTTPS；本機架設的項目可以用明文 HTTP，但主機必須是迴圈位址——
+    /// 資料與金鑰不該在明文中離開本機。
+    /// </summary>
     [Test]
-    public void Catalog_HasUniqueIds_AndValidHttpsOrigins()
+    public void Catalog_HasUniqueIds_AndValidOrigins()
     {
         var seen = new HashSet<string>(StringComparer.Ordinal);
 
@@ -24,8 +29,6 @@ public class DecisionProviderTests
                 Is.True,
                 $"{provider.Id} 的預設端點不是絕對 URI");
             Assert.That(uri.AbsolutePath, Is.EqualTo("/"), $"{provider.Id} 的 BaseAddress 必須是 origin");
-            // 遠端供應商一律 HTTPS；只有本機架設的項目可以用明文 HTTP，
-            // 而且主機必須是迴圈位址——資料與金鑰不該在明文中離開本機。
             Assert.That(
                 uri.Scheme == Uri.UriSchemeHttps || (uri.Scheme == Uri.UriSchemeHttp && IsLoopbackHost(uri.Host)),
                 Is.True,

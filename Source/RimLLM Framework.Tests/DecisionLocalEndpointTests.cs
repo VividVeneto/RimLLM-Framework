@@ -1,8 +1,6 @@
 using System;
 using System.Collections.Generic;
-using System.Net;
 using System.Net.Http;
-using System.Threading;
 using System.Threading.Tasks;
 using Kkdev92.Jev;
 using NUnit.Framework;
@@ -23,15 +21,15 @@ public class DecisionLocalEndpointTests
 {
     private const string TestModId = "rimllm.tests.localdecision";
 
-    private RecordingHandler _handler;
-    private Func<string, HttpMessageHandler> _originalMessageHandlerFactory;
+    private DecisionTestDoubles.FakeJevHandler _handler;
+    private Func<HttpMessageHandler> _originalMessageHandlerFactory;
 
     [SetUp]
     public void SetUp()
     {
-        _handler = new RecordingHandler();
+        _handler = new DecisionTestDoubles.FakeJevHandler();
         _originalMessageHandlerFactory = RimLLMDecisionService.MessageHandlerFactory;
-        RimLLMDecisionService.MessageHandlerFactory = _ => _handler;
+        RimLLMDecisionService.MessageHandlerFactory = () => _handler;
     }
 
     [TearDown]
@@ -121,16 +119,17 @@ public class DecisionLocalEndpointTests
     [Test]
     public async Task EvaluateWithProviderAsync_AgainstPlaintextEndpoint_ActuallyUsesHttp()
     {
-        MockSettings settings = NewSettings();
-        settings.DecisionProvider = "Ollama";
-        settings.DecisionEndpoints["Ollama"] = "http://localhost:11434";
+        MockSettings settings = DecisionTestDoubles.NewSettings();
+        settings.DecisionProvider = RimLLMDecisionProviderCatalog.Ollama;
+        settings.DecisionEndpoints[RimLLMDecisionProviderCatalog.Ollama] = "http://localhost:11434";
         // 本機服務不需要金鑰：這裡刻意不設定金鑰。
 
         RimLLMManager manager = new(settings);
         RimLLMDecisionClient client = new(manager, TestModId);
 
-        (JevDecisionPlan plan, JevNoulHandle handle) = OneQuestion();
-        JevResult result = await client.EvaluateWithProviderAsync("state", plan, "Ollama");
+        (JevDecisionPlan plan, JevNoulHandle handle) = DecisionTestDoubles.OneQuestion();
+        JevResult result = await client.EvaluateWithProviderAsync(
+            "state", plan, RimLLMDecisionProviderCatalog.Ollama);
 
         ClassicAssert.AreEqual(0.75, result.Get(handle).Probability, 1e-9);
         ClassicAssert.AreEqual(1, _handler.RequestUris.Count);
@@ -142,14 +141,15 @@ public class DecisionLocalEndpointTests
     [Test]
     public async Task EvaluateWithProviderAsync_AgainstPlaintextEndpoint_SendsAPlaceholderKey()
     {
-        MockSettings settings = NewSettings();
-        settings.DecisionProvider = "Ollama";
-        settings.DecisionEndpoints["Ollama"] = "http://localhost:11434";
+        MockSettings settings = DecisionTestDoubles.NewSettings();
+        settings.DecisionProvider = RimLLMDecisionProviderCatalog.Ollama;
+        settings.DecisionEndpoints[RimLLMDecisionProviderCatalog.Ollama] = "http://localhost:11434";
 
         RimLLMManager manager = new(settings);
         RimLLMDecisionClient client = new(manager, TestModId);
 
-        await client.EvaluateWithProviderAsync("state", OneQuestionPlan(), "Ollama");
+        await client.EvaluateWithProviderAsync(
+            "state", DecisionTestDoubles.OneQuestionPlan(), RimLLMDecisionProviderCatalog.Ollama);
 
         // SDK 拒絕空金鑰，所以框架送佔位值過去。
         ClassicAssert.AreEqual(
@@ -160,14 +160,14 @@ public class DecisionLocalEndpointTests
     [Test]
     public async Task FetchModelsAsync_AgainstPlaintextEndpoint_UsesHttpModelsPath()
     {
-        MockSettings settings = NewSettings();
-        settings.DecisionProvider = "Unsloth";
-        settings.DecisionEndpoints["Unsloth"] = "http://localhost:8888";
+        MockSettings settings = DecisionTestDoubles.NewSettings();
+        settings.DecisionProvider = RimLLMDecisionProviderCatalog.Unsloth;
+        settings.DecisionEndpoints[RimLLMDecisionProviderCatalog.Unsloth] = "http://localhost:8888";
 
         RimLLMManager manager = new(settings);
         RimLLMDecisionClient client = new(manager, TestModId);
 
-        IReadOnlyList<string> models = await client.FetchModelsAsync("Unsloth");
+        IReadOnlyList<string> models = await client.FetchModelsAsync(RimLLMDecisionProviderCatalog.Unsloth);
 
         ClassicAssert.AreEqual(2, models.Count);
         ClassicAssert.AreEqual("http://localhost:8888/v1/models", _handler.RequestUris[0].ToString());
@@ -176,14 +176,15 @@ public class DecisionLocalEndpointTests
     [Test]
     public async Task PlaintextEndpoint_WithoutKey_DoesNotThrowInvalidKey()
     {
-        MockSettings settings = NewSettings();
-        settings.DecisionProvider = "Local";
-        settings.DecisionEndpoints["Local"] = "http://localhost:8000";
+        MockSettings settings = DecisionTestDoubles.NewSettings();
+        settings.DecisionProvider = RimLLMDecisionProviderCatalog.Local;
+        settings.DecisionEndpoints[RimLLMDecisionProviderCatalog.Local] = "http://localhost:8000";
 
         RimLLMManager manager = new(settings);
         RimLLMDecisionClient client = new(manager, TestModId);
 
-        JevResult result = await client.EvaluateWithProviderAsync("state", OneQuestionPlan(), "Local");
+        JevResult result = await client.EvaluateWithProviderAsync(
+            "state", DecisionTestDoubles.OneQuestionPlan(), RimLLMDecisionProviderCatalog.Local);
 
         ClassicAssert.IsNotNull(result);
         ClassicAssert.AreEqual(1, _handler.RequestUris.Count);
@@ -194,15 +195,16 @@ public class DecisionLocalEndpointTests
     [Test]
     public async Task HttpsEndpoint_WithoutKey_StillRefusesWithInvalidKey()
     {
-        MockSettings settings = NewSettings();
-        settings.DecisionProvider = "TypeSafe";
-        settings.DecisionEndpoints["TypeSafe"] = "https://api.typesafe.ai";
+        MockSettings settings = DecisionTestDoubles.NewSettings();
+        settings.DecisionProvider = RimLLMDecisionProviderCatalog.TypeSafe;
+        settings.DecisionEndpoints[RimLLMDecisionProviderCatalog.TypeSafe] = "https://api.typesafe.ai";
 
         RimLLMManager manager = new(settings);
         RimLLMDecisionClient client = new(manager, TestModId);
 
         RimLLMException ex = ClassicAssert.ThrowsAsync<RimLLMException>(async () =>
-            await client.EvaluateWithProviderAsync("state", OneQuestionPlan(), "TypeSafe"));
+            await client.EvaluateWithProviderAsync(
+                "state", DecisionTestDoubles.OneQuestionPlan(), RimLLMDecisionProviderCatalog.TypeSafe));
 
         ClassicAssert.AreEqual(LLMError.InvalidKey, ex!.Error);
         ClassicAssert.IsEmpty(_handler.RequestUris, "缺金鑰時不得送出任何網路請求");
@@ -211,15 +213,16 @@ public class DecisionLocalEndpointTests
     [Test]
     public async Task HttpsEndpoint_KeepsUsingHttpsOnTheWire()
     {
-        MockSettings settings = NewSettings();
-        settings.DecisionProvider = "TypeSafe";
-        settings.DecisionApiKeys["TypeSafe"] = "type-safe-key";
-        settings.DecisionEndpoints["TypeSafe"] = "https://api.typesafe.ai";
+        MockSettings settings = DecisionTestDoubles.NewSettings();
+        settings.DecisionProvider = RimLLMDecisionProviderCatalog.TypeSafe;
+        settings.DecisionApiKeys[RimLLMDecisionProviderCatalog.TypeSafe] = "type-safe-key";
+        settings.DecisionEndpoints[RimLLMDecisionProviderCatalog.TypeSafe] = "https://api.typesafe.ai";
 
         RimLLMManager manager = new(settings);
         RimLLMDecisionClient client = new(manager, TestModId);
 
-        await client.EvaluateWithProviderAsync("state", OneQuestionPlan(), "TypeSafe");
+        await client.EvaluateWithProviderAsync(
+            "state", DecisionTestDoubles.OneQuestionPlan(), RimLLMDecisionProviderCatalog.TypeSafe);
 
         ClassicAssert.AreEqual("https://api.typesafe.ai/v1/systemone", _handler.RequestUris[0].ToString());
         ClassicAssert.AreEqual("Bearer type-safe-key", _handler.AuthorizationHeaders[0]);
@@ -228,15 +231,16 @@ public class DecisionLocalEndpointTests
     [Test]
     public async Task PlaintextEndpoint_WithARealKey_SendsThatKey()
     {
-        MockSettings settings = NewSettings();
-        settings.DecisionProvider = "Unsloth";
-        settings.DecisionApiKeys["Unsloth"] = "sk-unsloth-key";
-        settings.DecisionEndpoints["Unsloth"] = "http://localhost:8888";
+        MockSettings settings = DecisionTestDoubles.NewSettings();
+        settings.DecisionProvider = RimLLMDecisionProviderCatalog.Unsloth;
+        settings.DecisionApiKeys[RimLLMDecisionProviderCatalog.Unsloth] = "sk-unsloth-key";
+        settings.DecisionEndpoints[RimLLMDecisionProviderCatalog.Unsloth] = "http://localhost:8888";
 
         RimLLMManager manager = new(settings);
         RimLLMDecisionClient client = new(manager, TestModId);
 
-        await client.EvaluateWithProviderAsync("state", OneQuestionPlan(), "Unsloth");
+        await client.EvaluateWithProviderAsync(
+            "state", DecisionTestDoubles.OneQuestionPlan(), RimLLMDecisionProviderCatalog.Unsloth);
 
         ClassicAssert.AreEqual("Bearer sk-unsloth-key", _handler.AuthorizationHeaders[0]);
     }
@@ -246,13 +250,14 @@ public class DecisionLocalEndpointTests
     [Test]
     public void GetDecisionAvailability_ForPlaintextProvider_ReportsThatNoKeyIsRequired()
     {
-        MockSettings settings = NewSettings();
-        settings.DecisionProvider = "Ollama";
+        MockSettings settings = DecisionTestDoubles.NewSettings();
+        settings.DecisionProvider = RimLLMDecisionProviderCatalog.Ollama;
 
-        DecisionAvailability availability = AvailabilityFor(settings);
+        DecisionAvailability availability = DecisionTestDoubles.WithManager(
+            settings, RimLLMProvider.GetDecisionAvailability);
 
         ClassicAssert.IsTrue(availability.Enabled);
-        ClassicAssert.AreEqual("Ollama", availability.ProviderId);
+        ClassicAssert.AreEqual(RimLLMDecisionProviderCatalog.Ollama, availability.ProviderId);
         ClassicAssert.IsFalse(availability.HasKey);
         ClassicAssert.IsFalse(availability.RequiresKey);
         ClassicAssert.AreEqual("http://localhost:11434", availability.Endpoint);
@@ -262,80 +267,14 @@ public class DecisionLocalEndpointTests
     [Test]
     public void GetDecisionAvailability_ForHttpsProvider_StillRequiresAKey()
     {
-        MockSettings settings = NewSettings();
-        settings.DecisionProvider = "TypeSafe";
+        MockSettings settings = DecisionTestDoubles.NewSettings();
+        settings.DecisionProvider = RimLLMDecisionProviderCatalog.TypeSafe;
 
-        DecisionAvailability availability = AvailabilityFor(settings);
+        DecisionAvailability availability = DecisionTestDoubles.WithManager(
+            settings, RimLLMProvider.GetDecisionAvailability);
 
         ClassicAssert.IsTrue(availability.Enabled);
         ClassicAssert.IsFalse(availability.HasKey);
         ClassicAssert.IsTrue(availability.RequiresKey);
-    }
-
-    // ---------- 測試輔助 ----------
-
-    private static MockSettings NewSettings()
-    {
-        return new MockSettings { EnableAntiAbuse = false };
-    }
-
-    private static DecisionAvailability AvailabilityFor(MockSettings settings)
-    {
-        RimLLMProvider.TryGetManager(out RimLLMManager previousManager);
-        RimLLMProvider.Initialize(new RimLLMManager(settings));
-        try
-        {
-            return RimLLMProvider.GetDecisionAvailability();
-        }
-        finally
-        {
-            RimLLMProvider.Initialize(previousManager);
-        }
-    }
-
-    private static JevDecisionPlan OneQuestionPlan()
-    {
-        return OneQuestion().Plan;
-    }
-
-    private static (JevDecisionPlan Plan, JevNoulHandle Handle) OneQuestion()
-    {
-        var builder = new JevDecisionPlanBuilder();
-        JevNoulHandle handle = builder.AddNoul("hostile", "Is the speaker hostile?", default);
-        return (builder.Build(), handle);
-    }
-
-    /// <summary>攔截 SDK 送出的請求，記下最終的 URI 與授權標頭。</summary>
-    private sealed class RecordingHandler : HttpMessageHandler
-    {
-        public List<Uri> RequestUris { get; } = [];
-
-        public List<string> AuthorizationHeaders { get; } = [];
-
-        protected override Task<HttpResponseMessage> SendAsync(
-            HttpRequestMessage request, CancellationToken cancellationToken)
-        {
-            lock (RequestUris)
-            {
-                RequestUris.Add(request.RequestUri);
-                AuthorizationHeaders.Add(
-                    request.Headers.TryGetValues("Authorization", out IEnumerable<string> values)
-                        ? string.Join(",", values)
-                        : "");
-            }
-
-            string path = request.RequestUri?.AbsolutePath ?? "";
-            bool isModelList = path.EndsWith("/v1/models", StringComparison.OrdinalIgnoreCase);
-            string body = isModelList
-                ? "{\"models\":[{\"name\":\"laya\",\"description\":\"d\",\"release_date\":\"2026-01-01\"}," +
-                  "{\"name\":\"laya-multilingual\",\"description\":\"d\",\"release_date\":\"2026-01-01\"}]}"
-                : "{\"model\":\"tev1:4b\",\"answers\":{\"hostile\":{\"type\":\"noul\",\"noul\":0.75}}," +
-                  "\"usage\":{\"input_tokens\":11,\"output_tokens\":7}}";
-
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json")
-            });
-        }
     }
 }

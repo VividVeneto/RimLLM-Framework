@@ -236,6 +236,27 @@ double hostileProbability = result.Get(hostile).Probability;
 
 決策供應商預設為**停用**。設定頁列出 TypeSafe（Jev）、Clef、Liquid d1、Solar Decide、Kev、Tev1、Laya、Span、Microsoft Decision-1 與 OpenAI Decisions；模型、端點與金鑰都依供應商分開儲存，金鑰走和對話金鑰相同的 AES 加密，頁面可抓取供應商模型清單，連線測試會送出一個真正的一題決策。端點填 origin：客戶端會自動接上 `/v1/systemone`，因此任何相容 System One 的閘道都能用。決策呼叫和對話、embedding 共用呼叫者記錄、防濫用節流與每日 token 預算，錯誤契約也一致：一律以 `RimLLMException`（附 `LLMError` 代碼）呈現（401 對應 `InvalidKey`、429 對應 `RateLimit`、5xx 對應 `ProviderOffline`、SDK 逾時對應 `Timeout`、連不上對應 `NetworkError`），呼叫端取消維持 `OperationCanceledException`；未啟用供應商或缺金鑰會在送出前就以 `RimLLMException` 拒絕。服務本身不內建政策或路由：計畫與「機率代表什麼」都由呼叫端決定。
 
+#### 從自己的 Mod 選用決策供應商
+
+Mod 不一定要用玩家啟用的那一家。它可以先問框架「到底設定了沒」，再對自己選的供應商做決策——直接沿用框架為該供應商保存（加密）的金鑰，玩家不必輸入第二次。
+
+```csharp
+// 1) 玩家有沒有設定決策模型？
+DecisionAvailability availability = RimLLMProvider.GetDecisionAvailability();
+// availability.Enabled == false → 沒有啟用任何決策供應商，就不要啟動自己的決策功能
+
+// 2) 用自己選的供應商做決策
+RimLLMDecisionClient decisions = RimLLMProvider.CreateDecisionService("myai.mod");
+JevResult result = await decisions.EvaluateWithProviderAsync(
+    speakerText, plan, providerId: "TypeSafe", model: "jev-1.13", cancellationToken);
+double hostileProbability = result.Get(hostile).Probability;
+
+// 3) 模型下拉的選項
+IReadOnlyList<string> models = await decisions.FetchModelsAsync("TypeSafe", cancellationToken);
+```
+
+`GetDecisionAvailability` 是純查詢：不發任何網路請求、絕不外洩金鑰本身（只回報「有沒有金鑰」），沒有啟用決策供應商時回報 `Enabled = false` 而不擲例外。`EvaluateWithProviderAsync` 的端點、金鑰與模型都取自該供應商自己的設定，因此完全不會動到玩家的設定；缺金鑰、供應商 id 不存在或是 `Disabled` 標記，都會在送出任何請求之前就以 `RimLLMException`（`InvalidKey` 或 `Unknown`）拒絕，用量則記到實際服務該次請求的供應商帳上，而不是啟用中的那一家。`FetchModelsAsync` 回傳的是純字串的模型名稱（第三方 Mod 不必依賴 `Kkdev92.Jev` 的型別），且模型清單查詢不消耗推論額度。
+
 ### 錯誤處理
 
 所有失敗都以 `RimLLMException` 呈現，並帶有與供應商無關的 `LLMError` 代碼：
@@ -299,11 +320,12 @@ ChatResponse response = await client.GetResponseAsync(messages, options);
 
 ### API 表面速查
 
-`using RimLLM_Framework;` 會引入 14 個公開型別。多數 Mod 只會碰到第一列：
+`using RimLLM_Framework;` 會引入 13 個公開型別。多數 Mod 只會碰到第一列：
 
 | 分層 | 型別 | 什麼時候需要 |
 | --- | --- | --- |
 | **呼叫模型** | `RimLLMProvider`、`RimLLMChatOptions`、`RimLLMException`、`LLMError`、`RimLLMClientExtensions`（`GetResponseObjectAsync<T>`、`WereToolsStripped`）、`RimWorldFunctionInvoker` | 一定會用到 —— 這就是全部的使用端 API |
+| **做決策** | `RimLLMDecisionClient`、`DecisionAvailability` | 只有要用框架跑有型別的決策（是／否、選項、分數）時 |
 | **提供供應商** | `ILLMProvider`、`LLMProviderCapabilities`、`IRimLLMSettings` | 只有要用 `RimLLMProvider.RegisterProvider` 註冊自己的 LLM 後端時（`ILLMProvider` 直接產出標準 `Microsoft.Extensions.AI.IChatClient`） |
 | **診斷** | `TestResult`、`ProviderIds`、`LLMErrorMapper` | 連線測試、內建供應商 ID 常數、HTTP 狀態碼對照 |
 
@@ -323,7 +345,7 @@ ChatResponse response = await client.GetResponseAsync(messages, options);
 8. **推理模型** —— 思維鏈以 MEAI 的 `TextReasoningContent` 交付；每個供應商都能控制思考強度。
 9. **Prompt 快取** —— 以 `CachedContext` 使用服務端快取，用量統計會算出快取省下的費用。
 10. **Embedding SDK** —— 標準 `IEmbeddingGenerator`，後端可選 Gemini、OpenAI、Ollama 或 OpenAI 相容端點，與對話共用每日預算守衛。
-11. **決策模型** —— TypeSafe Jev 與另外九個 System One 相容供應商，模型、端點與金鑰依供應商分開設定，金鑰加密，支援模型清單與真正的決策測試。
+11. **決策模型** —— TypeSafe Jev 與另外九個 System One 相容供應商，模型、端點與金鑰依供應商分開設定，金鑰加密，支援模型清單與真正的決策測試。第三方 Mod 可以查詢玩家有沒有設定決策模型，並用自己選的供應商與模型做決策，沿用框架已保存的金鑰。
 12. **原生 Tool Calling** —— 所有供應商都支援 MEAI 的 `AIFunction`，工具在主執行緒執行，可取消尚未派送的工具。
 13. **第三方整合** —— 讓 RimTalk、Auto Translation、Mod Compatibility Checker、簡中自動化：One 改走 RimLLM。
 14. **使用中的模組** —— 設定分頁列出宣告依賴或本次遊戲呼叫過 RimLLM 的模組。

@@ -11,6 +11,7 @@
 * `modId` 是純標籤，不是憑證。它是每個 Mod 防濫用節流與遙測歸屬的鍵，不需要任何註冊呼叫。
 * 對話、Embedding 與決策門面在送出計費請求前檢查同一份用量帳本，HardBlock、WarnOnly 與每日重置在所有路徑上的意義相同。對話訊息在守衛入口只物化一次，判斷工具續輪時不會先耗盡只能列舉一次的序列。
 * 決策呼叫由 `RimLLMDecisionService`（Kkdev92.Jev，TypeSafe 的 System One wire format）執行，外層是 `RimLLMDecisionClient` 門面。門面會記錄呼叫者、套用防濫用節流與預算守衛，並把供應商回報的輸入／輸出 token 記進同一份帳本；歸屬資訊取自請求開始時的快照，請求途中切換啟用供應商不會把 token 記錯供應商。所有失敗都經共用的 `LLMErrorMapper` 收斂成含 `LLMError` 代碼的 `RimLLMException`。Base address 必須是 HTTPS origin，因為 client 會自動接上 `/v1/systemone`；設定頁依供應商保存模型、端點與金鑰，連線測試會送出真正的一題決策，未啟用供應商或缺金鑰會在送出前就被拒絕。
+* Mod 也能對「不是啟用中那一家的供應商」做決策。`RimLLMDecisionService.ResolveConnection(providerId, modelOverride)` 是解析決策連線的唯一入口：端點、金鑰與模型都取自該供應商自己的設定（經由 `IRimLLMSettings` 的逐供應商存取方法），並在送出前拒絕未啟用的供應商、不存在的供應商 id 與缺金鑰。`EvaluateWithProviderDetailedAsync` 與 `FetchDecisionModelsAsync` 都走這條路，因此「我正在跟誰對話」只在一處決定。`RimLLMProvider.GetDecisionAvailability()` 把同樣的值組成 `DecisionAvailability` DTO，供唯讀的「玩家有沒有設定？」檢查使用——只回報有沒有金鑰，絕不回報金鑰本身。`IRimLLMSettings` 上的逐供應商存取方法帶有預設介面實作，會退回啟用中供應商的值，因此依舊版編譯、自行實作該介面的外部 Mod 仍能載入，不會撞上 `TypeLoadException`。
 
 ### 2. Unity 主執行緒派送器（`RimLLMDispatcher`）
 
@@ -74,6 +75,8 @@ Linux 需要 `libsecret-1.so.0`、工作階段 D-Bus 與已解鎖的 Secret Serv
 ## 🧪 單元測試與驗證
 
 專案在 `Source/RimLLM Framework.Tests`（與主專案並列的獨立專案）附有完整的單元測試套件，涵蓋 AES 加解密、模型 Fallback、JSON Schema 產生（正規化）與修復、HTTP 錯誤對照、`Retry-After` 解析、`ChatOptions` 複製、串流重試、預算控制、決策供應商清單不變量（識別碼唯一、HTTPS origin、必要供應商與 fallback 行為），以及決策錯誤映射（以反射重建每一種 Jev SDK 例外型別，驗證都收斂成正確 `LLMError` 的 `RimLLMException`，並覆蓋未啟用供應商與缺金鑰的前置拒絕）。
+
+決策供應商選用另有專屬測試（`DecisionProviderSelectionTests`）。它透過一個內部接縫把 `HttpClient` 工廠換成假的 message handler，因此能驗證實際使用的是哪一家的端點與金鑰、用量記到誰帳上，以及缺金鑰、供應商 id 不存在、未啟用供應商與每日預算超限是否都在請求送出前就被拒絕；同時驗證 `GetDecisionAvailability` 不會外洩金鑰，以及指定供應商做完決策後玩家設定完全未變。
 
 審查回歸測試另涵蓋 Embedding 超額阻擋與呼叫端取消、部分串流結算、較長的 `Retry-After`、能力查詢不影響 RoundRobin 輪替、一次性訊息序列、工具排隊取消、過期聊天回呼、帶引號的日誌秘密、JSON 必填成員、字典值及 Nullable 集合 Schema。HTTP 行為以假傳輸測試，不需呼叫付費供應商。
 

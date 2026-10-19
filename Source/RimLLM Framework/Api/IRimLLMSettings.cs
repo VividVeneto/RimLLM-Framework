@@ -184,6 +184,30 @@ public interface IRimLLMSettings
     string DecisionApiKey { get; set; }
 
     /// <summary>
+    /// 獲取指定決策供應商保存的 API 金鑰。
+    /// 供應商的端點與金鑰在框架設定中是分開儲存的，第三方 Mod 指定供應商做決策時
+    /// 必須讀得到該供應商自己的金鑰，而不是啟用中那一家的。
+    /// </summary>
+    /// <remarks>
+    /// 預設實作退回啟用中供應商的金鑰：既有的外部設定實作者只維護「啟用中供應商」一份資料，
+    /// 補上預設實作才不會讓它們在執行期炸掉。框架內建的
+    /// <c>RimLLMFrameworkSettings</c> 覆寫了這三個方法，逐供應商各自取值。
+    /// </remarks>
+    string GetDecisionApiKey(string providerId) => DecisionApiKey;
+
+    /// <summary>
+    /// 獲取指定決策供應商的模型名稱（未設定時由供應商目錄提供預設值）。
+    /// </summary>
+    /// <inheritdoc cref="GetDecisionApiKey" path="/remarks"/>
+    string GetDecisionModel(string providerId) => DecisionModel;
+
+    /// <summary>
+    /// 獲取指定決策供應商的端點（未設定時由供應商目錄提供預設值）。
+    /// </summary>
+    /// <inheritdoc cref="GetDecisionApiKey" path="/remarks"/>
+    string GetDecisionEndpoint(string providerId) => DecisionEndpoint;
+
+    /// <summary>
     /// 歷史請求日誌記錄清單。
     /// </summary>
     List<Manager.RimLLMManager.RequestLogEntry> RequestLogs { get; set; }

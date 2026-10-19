@@ -38,7 +38,7 @@ public class RimLLMDecisionService
     }
 
     /// <summary>把使用者貼上的完整 /v1/systemone 位址縮回 JevClient 需要的 origin。</summary>
-    private static string NormalizeBaseEndpoint(string endpoint, string providerId)
+    internal static string NormalizeBaseEndpoint(string endpoint, string providerId)
     {
         if (string.IsNullOrWhiteSpace(endpoint))
         {
@@ -61,13 +61,20 @@ public class RimLLMDecisionService
         return new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan };
     }
 
-    private JevClientOptions CreateOptions(string endpoint, string model, string apiKey)
+    /// <summary>
+    /// 建立送出決策請求的 HttpClient。預設走真實網路；
+    /// 測試以這個內部接縫換掉它，讓假端點不必連網就能攔截請求並回應。
+    /// </summary>
+    internal static Func<HttpClient> HttpClientFactory { get; set; } = CreateHttpClient;
+
+    private JevClientOptions CreateOptions(string endpoint, string model, string apiKey, string providerId = null)
     {
+        string effectiveProviderId = string.IsNullOrWhiteSpace(providerId) ? _settings.DecisionProvider : providerId;
         return new JevClientOptions
         {
             BaseAddress = new Uri(endpoint, UriKind.Absolute),
             DefaultModel = string.IsNullOrWhiteSpace(model)
-                ? RimLLMDecisionProviderCatalog.GetDefaultModel(_settings.DecisionProvider)
+                ? RimLLMDecisionProviderCatalog.GetDefaultModel(effectiveProviderId)
                 : model,
             Credential = new SettingsCredential(() => apiKey ?? ""),
             Timeout = TimeSpan.FromSeconds(_settings.ApiTimeout > 0 ? _settings.ApiTimeout : 30)
@@ -75,32 +82,50 @@ public class RimLLMDecisionService
     }
 
     /// <summary>
-    /// 解析目前啟用供應商的連線資訊，並一併在這裡捕捉供歸屬用的供應商 id。
-    /// 未啟用或沒有金鑰都在此拒絕，不把無效請求送出去。
+    /// 解析指定供應商的連線資訊，並一併在這裡捕捉供歸屬用的供應商 id。
+    /// <paramref name="providerId"/> 為空時取啟用中的供應商；
+    /// 未啟用、供應商不存在或沒有金鑰都在此拒絕，不把無效請求送出去。
     /// </summary>
-    private DecisionConnection ResolveActiveConnection()
+    /// <param name="providerId">要使用的決策供應商 id；null 或空字串代表使用啟用中的供應商。</param>
+    /// <param name="modelOverride">逐次覆寫的模型名稱；為空時用該供應商設定中的模型。</param>
+    private DecisionConnection ResolveConnection(string providerId, string modelOverride = null)
     {
-        string providerId = _settings.DecisionProvider;
-        if (string.IsNullOrEmpty(providerId) ||
-            string.Equals(providerId, RimLLMDecisionProviderCatalog.Disabled, StringComparison.Ordinal))
+        string resolvedProviderId = string.IsNullOrWhiteSpace(providerId)
+            ? _settings.DecisionProvider
+            : providerId.Trim();
+
+        if (string.IsNullOrEmpty(resolvedProviderId) ||
+            string.Equals(resolvedProviderId, RimLLMDecisionProviderCatalog.Disabled, StringComparison.Ordinal))
         {
             throw new RimLLMException(
                 LLMError.Unknown,
                 "No decision provider is enabled; enable one in the Decision settings tab first.");
         }
 
-        if (string.IsNullOrWhiteSpace(_settings.DecisionApiKey))
+        if (!RimLLMDecisionProviderCatalog.TryGet(resolvedProviderId, out _))
+        {
+            throw new RimLLMException(
+                LLMError.Unknown,
+                $"Unknown decision provider '{resolvedProviderId}'.");
+        }
+
+        string apiKey = _settings.GetDecisionApiKey(resolvedProviderId);
+        if (string.IsNullOrWhiteSpace(apiKey))
         {
             throw new RimLLMException(
                 LLMError.InvalidKey,
-                "No API key is configured for the active decision provider.");
+                $"No API key is configured for the decision provider '{resolvedProviderId}'.");
         }
 
-        string endpoint = NormalizeBaseEndpoint(_settings.DecisionEndpoint, providerId);
-        string model = string.IsNullOrWhiteSpace(_settings.DecisionModel)
-            ? RimLLMDecisionProviderCatalog.GetDefaultModel(providerId)
-            : _settings.DecisionModel;
-        return new DecisionConnection(providerId, endpoint, model, _settings.DecisionApiKey ?? "");
+        string endpoint = NormalizeBaseEndpoint(_settings.GetDecisionEndpoint(resolvedProviderId), resolvedProviderId);
+        string model = !string.IsNullOrWhiteSpace(modelOverride)
+            ? modelOverride
+            : _settings.GetDecisionModel(resolvedProviderId);
+        if (string.IsNullOrWhiteSpace(model))
+        {
+            model = RimLLMDecisionProviderCatalog.GetDefaultModel(resolvedProviderId);
+        }
+        return new DecisionConnection(resolvedProviderId, endpoint, model, apiKey);
     }
 
     /// <summary>把使用者輸入的端點與金鑰做基本檢查；參數化的 UI 路徑（抓清單、測試連線）走這裡，未啟用也可預先連線。</summary>
@@ -120,9 +145,53 @@ public class RimLLMDecisionService
     {
         try
         {
-            DecisionConnection connection = ResolveActiveConnection();
-            return await FetchModelsCoreAsync(connection.Endpoint, connection.Model, connection.ApiKey, cancellationToken)
+            DecisionConnection connection = ResolveConnection(null);
+            return await FetchModelsCoreAsync(
+                    connection.Endpoint, connection.Model, connection.ApiKey, connection.ProviderId, cancellationToken)
                 .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (RimLLMException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            throw TranslateDecisionError(ex);
+        }
+    }
+
+    /// <summary>
+    /// 抓取指定供應商的可用模型清單（回傳模型名稱字串）。
+    /// 端點與金鑰取自該供應商在框架設定中保存的值；
+    /// <paramref name="providerId"/> 為空時用啟用中的供應商。
+    /// 模型清單查詢不消耗推論額度，也不計入每日預算。
+    /// </summary>
+    public async Task<IReadOnlyList<string>> FetchDecisionModelsAsync(
+        string providerId, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            DecisionConnection connection = ResolveConnection(providerId);
+            IReadOnlyList<JevModel> models = await FetchModelsCoreAsync(
+                    connection.Endpoint, connection.Model, connection.ApiKey, connection.ProviderId, cancellationToken)
+                .ConfigureAwait(false);
+
+            List<string> names = new List<string>(models?.Count ?? 0);
+            if (models != null)
+            {
+                foreach (JevModel model in models)
+                {
+                    if (model != null && !string.IsNullOrEmpty(model.Name))
+                    {
+                        names.Add(model.Name);
+                    }
+                }
+            }
+            return names;
         }
         catch (OperationCanceledException)
         {
@@ -149,7 +218,8 @@ public class RimLLMDecisionService
         {
             string normalizedEndpoint = NormalizeBaseEndpoint(endpoint, _settings.DecisionProvider);
             string usableKey = EnsureUsableKey(apiKey);
-            return await FetchModelsCoreAsync(normalizedEndpoint, model, usableKey, cancellationToken)
+            return await FetchModelsCoreAsync(
+                    normalizedEndpoint, model, usableKey, _settings.DecisionProvider, cancellationToken)
                 .ConfigureAwait(false);
         }
         catch (OperationCanceledException)
@@ -167,10 +237,10 @@ public class RimLLMDecisionService
     }
 
     private async Task<IReadOnlyList<JevModel>> FetchModelsCoreAsync(
-        string normalizedEndpoint, string model, string apiKey, CancellationToken cancellationToken)
+        string normalizedEndpoint, string model, string apiKey, string providerId, CancellationToken cancellationToken)
     {
-        using HttpClient http = CreateHttpClient();
-        var client = new JevClient(http, CreateOptions(normalizedEndpoint, model, apiKey));
+        using HttpClient http = HttpClientFactory();
+        var client = new JevClient(http, CreateOptions(normalizedEndpoint, model, apiKey, providerId));
         IReadOnlyList<JevModel> models =
             await client.GetModelsAsync(new JevRequestOptions(), cancellationToken).ConfigureAwait(false);
         return models ?? Array.Empty<JevModel>();
@@ -195,7 +265,7 @@ public class RimLLMDecisionService
             JevDecisionPlan plan = builder.Build();
 
             string normalizedEndpoint = NormalizeBaseEndpoint(endpoint, _settings.DecisionProvider);
-            using HttpClient http = CreateHttpClient();
+            using HttpClient http = HttpClientFactory();
             var client = new JevClient(http, CreateOptions(normalizedEndpoint, model, usableKey));
             var requestOptions = new JevRequestOptions { Model = model };
             await client
@@ -233,16 +303,33 @@ public class RimLLMDecisionService
         string model = null,
         CancellationToken cancellationToken = default)
     {
+        return await EvaluateWithProviderDetailedAsync(
+                state, plan, _settings.DecisionProvider, model, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 以指定供應商執行一次決策請求，並帶回在請求開始時捕捉的供應商／模型歸屬資訊。
+    /// 端點與金鑰取自該供應商在框架設定中保存的值；
+    /// <paramref name="providerId"/> 為空時等同 <see cref="EvaluateDetailedAsync"/>（使用啟用中的供應商）。
+    /// </summary>
+    internal async Task<DecisionEvaluation> EvaluateWithProviderDetailedAsync(
+        string state,
+        JevDecisionPlan plan,
+        string providerId,
+        string model = null,
+        CancellationToken cancellationToken = default)
+    {
         try
         {
             if (string.IsNullOrWhiteSpace(state)) throw new ArgumentNullException(nameof(state));
             if (plan == null) throw new ArgumentNullException(nameof(plan));
 
-            DecisionConnection connection = ResolveActiveConnection();
-            string selectedModel = string.IsNullOrWhiteSpace(model) ? connection.Model : model;
+            DecisionConnection connection = ResolveConnection(providerId, model);
+            string selectedModel = connection.Model;
 
-            using HttpClient http = CreateHttpClient();
-            var client = new JevClient(http, CreateOptions(connection.Endpoint, selectedModel, connection.ApiKey));
+            using HttpClient http = HttpClientFactory();
+            var client = new JevClient(http, CreateOptions(connection.Endpoint, selectedModel, connection.ApiKey, connection.ProviderId));
             var requestOptions = new JevRequestOptions { Model = selectedModel };
             JevResult result = await client
                 .EvaluateAsync(state, plan, requestOptions, cancellationToken)

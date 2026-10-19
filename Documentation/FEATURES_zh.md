@@ -63,6 +63,11 @@
     * 設定頁列出 TypeSafe（Jev）、Clef、Liquid d1、Solar Decide、Kev、Tev1、Laya、Span、Microsoft Decision-1 與 OpenAI Decisions。模型、端點與金鑰依供應商分開保存，切換啟用的供應商不會遺失其他設定。模型或端點留空代表使用供應商預設值；端點填 origin，client 會自動接上 `/v1/systemone`。
     * 所有金鑰採用與供應商金鑰相同的 AES 加密。設定頁可抓取閘道的模型清單（閘道沒有 `/v1/models` 時仍顯示預設模型），連線測試會送出真正的一題決策，因此「模型清單可用但決策回應格式不相容」的閘道會在呼叫端依賴前就被抓出來。
     * 決策屬計費 API：每次呼叫都經過與對話、embedding 相同的呼叫者記錄、防濫用節流與每日 token 預算，並把供應商回報的輸入／輸出 token 記入用量帳本。所有失敗一律以 `RimLLMException`（附 `LLMError` 代碼）呈現——HTTP 狀態碼走共用的 `LLMErrorMapper` 對照（401 → `InvalidKey`、429 → `RateLimit` 且保留伺服器的 `Retry-After`、5xx → `ProviderOffline`），SDK 逾時對應 `Timeout`、斷網對應 `NetworkError`、協議違規對應 `InvalidResponse`；未啟用供應商或缺金鑰會在送出前就被拒絕。呼叫端取消保留 `OperationCanceledException`。
+    * **Mod 可以選用自己的決策供應商。** 三個公開入口讓第三方 Mod 不必動到玩家設定就能這麼做：
+        * `RimLLMProvider.GetDecisionAvailability()` 回傳 `DecisionAvailability` 快照——有沒有啟用決策供應商、是哪一家、解析後的模型、解析後的端點（origin）與有沒有保存金鑰。這是純查詢：不發網路請求，也絕不外洩金鑰本身。沒有啟用任何決策供應商時回報 `Enabled = false` 而不擲例外——「玩家還沒設定」是答案，不是錯誤。
+        * `RimLLMDecisionClient.EvaluateWithProviderAsync(state, plan, providerId, model, ct)` 的端點、金鑰與模型都取自該供應商自己的設定，因此完全不會動到玩家的設定；缺金鑰、供應商 id 不存在或是 `Disabled` 標記，都會在送出任何請求之前就以 `RimLLMException`（`InvalidKey` 或 `Unknown`）拒絕。用量記到實際服務該次請求的供應商帳上，而不是啟用中的那一家，且歸屬資訊在請求開始時就快照下來。
+        * `RimLLMDecisionClient.FetchModelsAsync(providerId, ct)` 回傳純字串的模型名稱清單（`IReadOnlyList<string>`），第三方 Mod 完全不必引用 `Kkdev92.Jev` 的型別。模型清單查詢會記錄呼叫者並套用防濫用節流，但不消耗推論額度、也不記入用量。
+        * 逐供應商的存取方法放在 `IRimLLMSettings`（`GetDecisionApiKey`、`GetDecisionModel`、`GetDecisionEndpoint`）。這三個宣告帶有預設介面實作，舊版編譯的外部 Mod 仍能正常載入（退回啟用中供應商的值）；框架內建的 `RimLLMFrameworkSettings` 覆寫了三者，各供應商的值分開保存。
 12. **原生 Tool Calling（函式呼叫）**
     * 完整支援 Microsoft.Extensions.AI Tool Calling 標準（`AIFunction`、`ChatOptions.Tools`、`FunctionCallContent`、`FunctionResultContent`），所有供應商經共用的 OpenAI 協定路徑提供。
     * 提供 `RimWorldFunctionInvoker.AsMainThreadFunctionInvokingClient()`，自動將工具叫用委派排入 Unity 主執行緒執行，杜絕 RimWorld 跨執行緒崩潰風險。

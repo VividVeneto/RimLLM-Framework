@@ -300,6 +300,45 @@ public class RimLLMManager
         return new RimLLMDecisionClient(this, modId);
     }
 
+    /// <summary>
+    /// 目前決策供應商的可用狀態。純查詢，不發任何網路請求。
+    /// 未啟用決策供應商時回報 <c>Enabled = false</c>，不擲例外——
+    /// 「玩家還沒設定」是查詢結果，不是錯誤。
+    /// </summary>
+    internal DecisionAvailability GetDecisionAvailability()
+    {
+        string providerId = _settings.DecisionProvider;
+        if (string.IsNullOrEmpty(providerId) ||
+            string.Equals(providerId, RimLLMDecisionProviderCatalog.Disabled, StringComparison.Ordinal) ||
+            !RimLLMDecisionProviderCatalog.TryGet(providerId, out _))
+        {
+            return new DecisionAvailability
+            {
+                Enabled = false,
+                ProviderId = RimLLMDecisionProviderCatalog.Disabled,
+                Model = "",
+                HasKey = false,
+                Endpoint = ""
+            };
+        }
+
+        string model = _settings.GetDecisionModel(providerId);
+        if (string.IsNullOrWhiteSpace(model))
+        {
+            model = RimLLMDecisionProviderCatalog.GetDefaultModel(providerId);
+        }
+
+        return new DecisionAvailability
+        {
+            Enabled = true,
+            ProviderId = providerId,
+            Model = model,
+            // 只回報「有沒有金鑰」，金鑰本身絕不外洩。
+            HasKey = !string.IsNullOrWhiteSpace(_settings.GetDecisionApiKey(providerId)),
+            Endpoint = RimLLMDecisionService.NormalizeBaseEndpoint(_settings.GetDecisionEndpoint(providerId), providerId)
+        };
+    }
+
     /// <summary>執行指定 Mod 的防濫用檢查（供 embedding / decision facade 於每次呼叫時使用）。</summary>
     internal void CheckAntiAbuseForMod(string modId)
     {

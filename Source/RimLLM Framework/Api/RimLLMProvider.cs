@@ -68,6 +68,18 @@ public static class RimLLMProvider
         return Manager.CreateDecisionService(modId);
     }
 
+    /// <summary>
+    /// 目前決策供應商的可用狀態；純查詢，不發任何網路請求。
+    /// 框架未初始化時擲 <see cref="InvalidOperationException"/>（與其他 API 一致）。
+    /// 決策供應商未啟用時回報 <c>Enabled = false</c>，不擲例外——
+    /// 「玩家還沒設定決策模型」是查詢結果，不是錯誤。
+    /// 回傳值不含金鑰本身，只有「有沒有金鑰」。
+    /// </summary>
+    public static DecisionAvailability GetDecisionAvailability()
+    {
+        return Manager.GetDecisionAvailability();
+    }
+
     /// <summary>註冊外部 LLM 供應商的靜態便捷入口。</summary>
     public static void RegisterProvider(Providers.ILLMProvider provider)
     {

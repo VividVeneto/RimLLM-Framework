@@ -782,6 +782,18 @@ public class MockSettings : IRimLLMSettings, IDailyTokenBudget
     public string DecisionEndpoint { get; set; } = "";
     public string DecisionApiKey { get; set; } = "";
 
+    // 決策模組的逐供應商資料：框架設定本來就是分開存的，mock 也要能表達「只有某一家有金鑰」。
+    public Dictionary<string, string> DecisionApiKeys = [];
+    public Dictionary<string, string> DecisionModels = [];
+    public Dictionary<string, string> DecisionEndpoints = [];
+
+    public string GetDecisionApiKey(string providerId) =>
+        DecisionApiKeys.TryGetValue(providerId, out string key) ? key : "";
+    public string GetDecisionModel(string providerId) =>
+        DecisionModels.TryGetValue(providerId, out string model) ? model : "";
+    public string GetDecisionEndpoint(string providerId) =>
+        DecisionEndpoints.TryGetValue(providerId, out string endpoint) ? endpoint : "";
+
     public Dictionary<string, string> ApiKeys = [];
     public Dictionary<string, string> Endpoints = [];
     public Dictionary<string, bool> EnabledProviders = [];

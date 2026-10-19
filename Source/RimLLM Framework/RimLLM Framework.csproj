@@ -29,30 +29,13 @@
     <!-- 直接 Reference 的組件預設會連 .xml 文件檔一起複製到 Assemblies/，出貨不需要。 -->
     <AllowedReferenceRelatedFileExtensions>.pdb</AllowedReferenceRelatedFileExtensions>
     <Authors>mushroomTW</Authors>
-    <!-- SonarQube / Coverlet 覆蓋率排除非邏輯核心的 RimWorld UI 繪製、Mod 進入點與需要遊戲執行期的 Harmony 掛載 -->
-    <SonarQubeCoverageExclusions>**/Mod/UI/**;**/Mod/RimLLMFrameworkMod.cs;**/Compat/RimLLMCompatBootstrap.cs;**/Compat/RimTalk/RimTalkCompatPatch.cs;**/Compat/AutoTranslation/AutoTranslationCompatPatch.cs;**/Compat/ModCompatChecker/ModCompatCheckerCompatPatch.cs</SonarQubeCoverageExclusions>
   </PropertyGroup>
 
-  <ItemGroup>
-    <SonarQubeSetting Include="sonar.coverage.exclusions">
-      <Value>**/Mod/UI/**,**/Mod/RimLLMFrameworkMod.cs,**/Compat/RimLLMCompatBootstrap.cs,**/Compat/RimTalk/RimTalkCompatPatch.cs,**/Compat/AutoTranslation/AutoTranslationCompatPatch.cs,**/Compat/ModCompatChecker/ModCompatCheckerCompatPatch.cs</Value>
-    </SonarQubeSetting>
-  </ItemGroup>
 
-  <!-- 1.7 本機遊戲組件與 Harmony 3.0：直接參考遊戲根目錄的組件，Private=false 不隨 Mod 出貨 -->
+  <!-- RimWorld 1.7 API 參考組件改由 NuGet 套件 Krafs.Rimworld.Ref 提供（可攜式建置，不依賴本機遊戲）。
+       Harmony 3.0 仍取自工作坊 DLL，Private=false 不隨 Mod 出貨。 -->
   <ItemGroup>
-    <Reference Include="Assembly-CSharp">
-      <HintPath>$(RimWorldDir)Assembly-CSharp.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="UnityStubs">
-      <HintPath>$(RimWorldDir)UnityStubs.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="Waylith">
-      <HintPath>$(RimWorldDir)Waylith.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
+    <PackageReference Include="Krafs.Rimworld.Ref" Version="1.7.4982-unstable" />
     <Reference Include="0Harmony">
       <HintPath>$(HarmonyDll)</HintPath>
       <Private>false</Private>

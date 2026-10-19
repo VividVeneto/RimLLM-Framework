@@ -54,4 +54,10 @@
       <Private>true</Private>
     </Reference>
   </ItemGroup>
+
+  <!-- 主專案改用 Krafs.Rimworld.Ref NuGet 套件後，遊戲組件不再由 Reference 的 Private 複製；
+       這裡明確把執行期所需的遊戲 DLL 複製到測試輸出，避免 FileNotFoundException。 -->
+  <Target Name="CopyRimWorldRuntimeAssemblies" AfterTargets="Build">
+    <Copy SourceFiles="$(RimWorldDir)Assembly-CSharp.dll;$(RimWorldDir)UnityStubs.dll;$(RimWorldDir)Waylith.dll" DestinationFolder="$(TargetDir)" SkipUnchangedFiles="true" />
+  </Target>
 </Project>

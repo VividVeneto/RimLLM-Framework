@@ -25,20 +25,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Krafs.Rimworld.Ref" Version="1.7.4982-unstable" />
     <Reference Include="Microsoft.Extensions.AI.Abstractions">
       <HintPath>..\..\Assemblies\Microsoft.Extensions.AI.Abstractions.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="Assembly-CSharp">
-      <HintPath>$(RimWorldDir)Assembly-CSharp.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="UnityStubs">
-      <HintPath>$(RimWorldDir)UnityStubs.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <Reference Include="Waylith">
-      <HintPath>$(RimWorldDir)Waylith.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="0Harmony">

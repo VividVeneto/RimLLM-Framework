@@ -78,7 +78,7 @@ Review regression fixtures additionally exercise exhausted embedding budgets and
 
 ### Build and runtime requirements
 
-Use the .NET 10 SDK. `global.json` selects a compatible 10.0 SDK, and `Source/Directory.Build.props` gives all three projects the same `net10.0` target and C# 14 language version. Compile against the **installed RimWorld 1.7 game root**, containing `Assembly-CSharp.dll`, `UnityStubs.dll` and `Waylith.dll`; the old `Krafs.Rimworld.Ref` package is no longer used. Game assemblies are not redistributed.
+Use the .NET 10 SDK. `global.json` selects a compatible 10.0 SDK, and `Source/Directory.Build.props` gives all three projects the same `net10.0` target and C# 14 language version. RimWorld 1.7 API reference assemblies come from the `Krafs.Rimworld.Ref` NuGet package (version `1.7.4982-unstable`), so the mod builds without a local game install; Harmony 3.0 and the test-runtime game DLLs still come from the installed game/workshop. Game assemblies are not redistributed.
 
 The default game path assumes this checkout is inside `RimWorld/Mods`. Elsewhere, set `-p:RimWorldDir="<game root>"` or `RIMWORLD_DIR`. Harmony defaults to Workshop item 2009463077's `1.7/Assemblies/0Harmony.dll`; override `HarmonyDll`, or `WorkshopDir` / `WORKSHOP_DIR`, when installed elsewhere. Missing references fail the build with a targeted error.
 

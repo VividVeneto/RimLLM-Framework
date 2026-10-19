@@ -3,7 +3,6 @@ using Microsoft.Extensions.AI;
 
 namespace RimLLM_Framework;
 
-#pragma warning disable S101, S2342 // reason: RimLLM 為品牌縮寫，公開 API 重命名會破壞下游 Mod，維持現狀
 /// <summary>
 /// 定義 RimLLM Framework 的設定檔介面。
 /// 藉由介面隔離，解除核心邏輯與 RimWorld ModSettings 本體的直接耦合。
@@ -179,6 +178,11 @@ public interface IRimLLMSettings
     /// </summary>
     string EmbeddingApiKey { get; set; }
 
+    string DecisionProvider { get; set; }
+    string DecisionModel { get; set; }
+    string DecisionEndpoint { get; set; }
+    string DecisionApiKey { get; set; }
+
     /// <summary>
     /// 歷史請求日誌記錄清單。
     /// </summary>
@@ -199,4 +203,3 @@ public interface IRimLLMSettings
     /// </summary>
     void Write();
 }
-#pragma warning restore S101, S2342

@@ -259,6 +259,9 @@
   <RimLLM_DecisionActiveBadge>&lt;color=#4ade80&gt;&lt;b&gt;（使用中的決策服務）&lt;/b&gt;&lt;/color&gt;</RimLLM_DecisionActiveBadge>
   <RimLLM_DecisionExplanation>決策模型只回答結構化問題（是/否、選項、分數），不會生成文章。其他 Mod 可透過 RimLLM SDK 呼叫此服務；若未啟用任何供應商，就不會進行決策。</RimLLM_DecisionExplanation>
   <RimLLM_DecisionKeyHint>API 金鑰（所選供應商必填）：</RimLLM_DecisionKeyHint>
+  <RimLLM_DecisionLocalKeyHint>API 金鑰（本機服務可不填；伺服器不驗證金鑰時留白即可）：</RimLLM_DecisionLocalKeyHint>
+  <RimLLM_DecisionLocalEndpointHint>&lt;color=grey&gt;此端點使用明文 HTTP。請求會未加密送往這個位址，請只填自己架設的服務。&lt;/color&gt;</RimLLM_DecisionLocalEndpointHint>
+  <RimLLM_DecisionDetectLocalBtn>偵測本機決策服務</RimLLM_DecisionDetectLocalBtn>
   <RimLLM_DecisionNoKeyWarning>&lt;color=#facc15&gt;此供應商尚未設定 API 金鑰。&lt;/color&gt;</RimLLM_DecisionNoKeyWarning>
   <RimLLM_DecisionEndpointLabel>自訂端點 URL（僅限 origin）：</RimLLM_DecisionEndpointLabel>
   <RimLLM_DecisionModelLabel>決策模型名稱：</RimLLM_DecisionModelLabel>
@@ -282,4 +285,7 @@
   <RimLLM_DecisionProvider_Span>Respan（Span-01）</RimLLM_DecisionProvider_Span>
   <RimLLM_DecisionProvider_Microsoft>Microsoft（Decision-1）</RimLLM_DecisionProvider_Microsoft>
   <RimLLM_DecisionProvider_OpenAI>OpenAI Decisions</RimLLM_DecisionProvider_OpenAI>
+  <RimLLM_DecisionProvider_Ollama>Ollama（本機）</RimLLM_DecisionProvider_Ollama>
+  <RimLLM_DecisionProvider_Unsloth>Unsloth（本機 Laya／Clef）</RimLLM_DecisionProvider_Unsloth>
+  <RimLLM_DecisionProvider_Local>其他本機服務</RimLLM_DecisionProvider_Local>
 </LanguageData>

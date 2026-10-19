@@ -49,6 +49,15 @@ public static class RimLLMDecisionProviderCatalog
     public const string Microsoft = "Microsoft";
     public const string OpenAI = "OpenAI";
 
+    /// <summary>Ollama 0.35 以上內建的 Jev 風格決策介面（/v1/systemone）。</summary>
+    public const string Ollama = "Ollama";
+
+    /// <summary>Unsloth 以 TypeSafe 相容的 Jev API 提供本機 Laya／Clef。</summary>
+    public const string Unsloth = "Unsloth";
+
+    /// <summary>其他 System One 相容的本機伺服器（自架閘道、vLLM 轉接層等）。</summary>
+    public const string Local = "Local";
+
     /// <summary>
     /// decisions-api.dev 把多個供應商統一在 /v1/systemone 之下，因此非 TypeSafe 的原生服務
     /// 也能用同一個 JevClient。玩家仍可在 UI 改成供應商自己的端點。
@@ -106,7 +115,25 @@ public static class RimLLMDecisionProviderCatalog
             OpenAI,
             AggregatorEndpoint,
             "openai/gpt-6-luna-decisions",
-            "openai/gpt-6-luna-decisions")
+            "openai/gpt-6-luna-decisions"),
+
+        // 本機架設：走明文 HTTP，Jev SDK 只接受 HTTPS origin，
+        // 由 DecisionEndpointRouting 在傳輸層把兩者接起來。
+        new RimLLMDecisionProvider(
+            Ollama,
+            "http://localhost:11434",
+            "tev1:4b",
+            "tev1:4b"),
+        new RimLLMDecisionProvider(
+            Unsloth,
+            "http://localhost:8888",
+            "laya",
+            "laya", "laya-multilingual", "laya-english", "laya-typed-decisions"),
+        new RimLLMDecisionProvider(
+            Local,
+            "http://localhost:8000",
+            "jev-latest",
+            "jev-latest")
     ];
 
     private static readonly Dictionary<string, RimLLMDecisionProvider> ById =

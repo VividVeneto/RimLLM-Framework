@@ -259,6 +259,9 @@
   <RimLLM_DecisionActiveBadge>&lt;color=#4ade80&gt;&lt;b&gt;(Active Decision Service)&lt;/b&gt;&lt;/color&gt;</RimLLM_DecisionActiveBadge>
   <RimLLM_DecisionExplanation>Decision models answer typed questions (yes/no, choice, score) instead of writing text. Other mods can call this service through the RimLLM SDK. If no provider is enabled, no decisions will be made.</RimLLM_DecisionExplanation>
   <RimLLM_DecisionKeyHint>API Key (required by the selected provider): </RimLLM_DecisionKeyHint>
+  <RimLLM_DecisionLocalKeyHint>API Key (optional for a local server; leave blank if it does not check keys): </RimLLM_DecisionLocalKeyHint>
+  <RimLLM_DecisionLocalEndpointHint>&lt;color=grey&gt;This endpoint uses plain HTTP. The request is sent unencrypted to this address, so use it only for a server you run yourself.&lt;/color&gt;</RimLLM_DecisionLocalEndpointHint>
+  <RimLLM_DecisionDetectLocalBtn>Detect Local Decision Server</RimLLM_DecisionDetectLocalBtn>
   <RimLLM_DecisionNoKeyWarning>&lt;color=#facc15&gt;No API key configured for this provider.&lt;/color&gt;</RimLLM_DecisionNoKeyWarning>
   <RimLLM_DecisionEndpointLabel>Custom Endpoint URL (origin only): </RimLLM_DecisionEndpointLabel>
   <RimLLM_DecisionModelLabel>Decision Model Name: </RimLLM_DecisionModelLabel>
@@ -282,4 +285,7 @@
   <RimLLM_DecisionProvider_Span>Respan (Span-01)</RimLLM_DecisionProvider_Span>
   <RimLLM_DecisionProvider_Microsoft>Microsoft (Decision-1)</RimLLM_DecisionProvider_Microsoft>
   <RimLLM_DecisionProvider_OpenAI>OpenAI Decisions</RimLLM_DecisionProvider_OpenAI>
+  <RimLLM_DecisionProvider_Ollama>Ollama (local)</RimLLM_DecisionProvider_Ollama>
+  <RimLLM_DecisionProvider_Unsloth>Unsloth (local Laya/Clef)</RimLLM_DecisionProvider_Unsloth>
+  <RimLLM_DecisionProvider_Local>Other local server</RimLLM_DecisionProvider_Local>
 </LanguageData>

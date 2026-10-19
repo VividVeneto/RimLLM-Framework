@@ -68,6 +68,11 @@
         * `RimLLMDecisionClient.EvaluateWithProviderAsync(state, plan, providerId, model, ct)` 的端點、金鑰與模型都取自該供應商自己的設定，因此完全不會動到玩家的設定；缺金鑰、供應商 id 不存在或是 `Disabled` 標記，都會在送出任何請求之前就以 `RimLLMException`（`InvalidKey` 或 `Unknown`）拒絕。用量記到實際服務該次請求的供應商帳上，而不是啟用中的那一家，且歸屬資訊在請求開始時就快照下來。
         * `RimLLMDecisionClient.FetchModelsAsync(providerId, ct)` 回傳純字串的模型名稱清單（`IReadOnlyList<string>`），第三方 Mod 完全不必引用 `Kkdev92.Jev` 的型別。模型清單查詢會記錄呼叫者並套用防濫用節流，但不消耗推論額度、也不記入用量。
         * 逐供應商的存取方法放在 `IRimLLMSettings`（`GetDecisionApiKey`、`GetDecisionModel`、`GetDecisionEndpoint`）。這三個宣告帶有預設介面實作，舊版編譯的外部 Mod 仍能正常載入（退回啟用中供應商的值）；框架內建的 `RimLLMFrameworkSettings` 覆寫了三者，各供應商的值分開保存。
+    * **決策模型可以跑在玩家自己的機器上。** 供應商目錄新增三個本機項目：*Ollama*（`http://localhost:11434`，預設模型 `tev1:4b`——Ollama 0.35 以上在 `/v1/systemone` 提供 Jev 風格的決策端點）、*Unsloth*（`http://localhost:8888`，預設模型 `laya`——Unsloth 以 TypeSafe 相容的 Jev API 提供服務）與*其他本機服務*（`http://localhost:8000`，給任何其他 System One 相容的程序）。這三家的端點、模型與模型清單都和其他供應商一樣分開保存；設定頁另有**「偵測本機決策服務」**按鈕，會探測已知的本機連接埠並自動填入端點。
+    * 讓本機端點能運作的兩條規則，都依玩家設定的端點推導，而不是看供應商的身分：
+        * **明文 `http://` 端點不需要 API 金鑰。** 本機服務多半不驗證憑證，金鑰欄位可以留白，框架改送佔位值（`local`）——Jev SDK 直接拒絕空金鑰。`https://` 端點仍然一定要有真金鑰，缺金鑰的呼叫會在送出前就以 `InvalidKey` 拒絕。
+        * **Jev SDK 只接受 HTTPS origin**（`ClientSettings.ValidateBaseAddress` 會拒絕其他 scheme），但本機服務講的是明文 HTTP。`DecisionEndpointRouting` 把兩者接起來：交給 SDK 一個同 host 與 port 的 HTTPS origin，`PlaintextEndpointRewriteHandler` 再於請求送上線前改寫回玩家設定的明文端點。因此本機服務收到的就是一般的明文 HTTP，不需要代理、隧道或憑證。改寫只動請求 URI，SDK 自己的請求編碼與回應解碼完全沿用。
+        * 明文 HTTP 代表請求在送往服務的途中沒有加密。設定頁會在端點欄位旁說明這點；遠端供應商不受影響，仍然要求 HTTPS。
 12. **原生 Tool Calling（函式呼叫）**
     * 完整支援 Microsoft.Extensions.AI Tool Calling 標準（`AIFunction`、`ChatOptions.Tools`、`FunctionCallContent`、`FunctionResultContent`），所有供應商經共用的 OpenAI 協定路徑提供。
     * 提供 `RimWorldFunctionInvoker.AsMainThreadFunctionInvokingClient()`，自動將工具叫用委派排入 Unity 主執行緒執行，杜絕 RimWorld 跨執行緒崩潰風險。

@@ -54,25 +54,36 @@ public class RimLLMDecisionService
         return normalized;
     }
 
-    private static HttpClient CreateHttpClient()
+    private static HttpClient CreateHttpClient(string endpoint)
     {
         // JevClient 自己管理 deadline；HttpClient 的逾時必須關掉，否則會比 SDK 先中斷。
-        var handler = new SocketsHttpHandler { AllowAutoRedirect = false };
+        HttpMessageHandler handler = MessageHandlerFactory(endpoint);
+        if (DecisionEndpointRouting.IsPlaintext(endpoint))
+        {
+            // SDK 組出的是 https URI，這裡在送上線前改寫回玩家設定的明文端點。
+            handler = new PlaintextEndpointRewriteHandler(DecisionEndpointRouting.GetTransportOrigin(endpoint))
+            {
+                InnerHandler = handler
+            };
+        }
         return new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan };
     }
 
     /// <summary>
-    /// 建立送出決策請求的 HttpClient。預設走真實網路；
+    /// 建立送出決策請求的底層 HTTP 處理器。預設走真實網路；
     /// 測試以這個內部接縫換掉它，讓假端點不必連網就能攔截請求並回應。
     /// </summary>
-    internal static Func<HttpClient> HttpClientFactory { get; set; } = CreateHttpClient;
+    internal static Func<string, HttpMessageHandler> MessageHandlerFactory { get; set; } =
+        _ => new SocketsHttpHandler { AllowAutoRedirect = false };
 
     private JevClientOptions CreateOptions(string endpoint, string model, string apiKey, string providerId = null)
     {
         string effectiveProviderId = string.IsNullOrWhiteSpace(providerId) ? _settings.DecisionProvider : providerId;
         return new JevClientOptions
         {
-            BaseAddress = new Uri(endpoint, UriKind.Absolute),
+            // SDK 只接受 https origin；明文本機端點在這裡先換成同 host／port 的 https，
+            // 實際連線由 CreateHttpClient 的改寫處理器接回明文。
+            BaseAddress = DecisionEndpointRouting.GetSdkBaseAddress(endpoint),
             DefaultModel = string.IsNullOrWhiteSpace(model)
                 ? RimLLMDecisionProviderCatalog.GetDefaultModel(effectiveProviderId)
                 : model,
@@ -109,15 +120,20 @@ public class RimLLMDecisionService
                 $"Unknown decision provider '{resolvedProviderId}'.");
         }
 
+        string endpoint = NormalizeBaseEndpoint(_settings.GetDecisionEndpoint(resolvedProviderId), resolvedProviderId);
         string apiKey = _settings.GetDecisionApiKey(resolvedProviderId);
         if (string.IsNullOrWhiteSpace(apiKey))
         {
-            throw new RimLLMException(
-                LLMError.InvalidKey,
-                $"No API key is configured for the decision provider '{resolvedProviderId}'.");
+            // 本機架設的服務多半不驗證金鑰；遠端供應商少了金鑰就是不能送。
+            if (!DecisionEndpointRouting.IsPlaintext(endpoint))
+            {
+                throw new RimLLMException(
+                    LLMError.InvalidKey,
+                    $"No API key is configured for the decision provider '{resolvedProviderId}'.");
+            }
+            apiKey = DecisionEndpointRouting.PlaintextPlaceholderKey;
         }
 
-        string endpoint = NormalizeBaseEndpoint(_settings.GetDecisionEndpoint(resolvedProviderId), resolvedProviderId);
         string model = !string.IsNullOrWhiteSpace(modelOverride)
             ? modelOverride
             : _settings.GetDecisionModel(resolvedProviderId);
@@ -128,16 +144,25 @@ public class RimLLMDecisionService
         return new DecisionConnection(resolvedProviderId, endpoint, model, apiKey);
     }
 
-    /// <summary>把使用者輸入的端點與金鑰做基本檢查；參數化的 UI 路徑（抓清單、測試連線）走這裡，未啟用也可預先連線。</summary>
-    private static string EnsureUsableKey(string apiKey)
+    /// <summary>
+    /// 把使用者輸入的端點與金鑰做基本檢查；參數化的 UI 路徑（抓清單、測試連線）走這裡，未啟用也可預先連線。
+    /// 明文本機端點不要求金鑰，改用佔位值。
+    /// </summary>
+    private static string EnsureUsableKey(string apiKey, string endpoint)
     {
-        if (string.IsNullOrWhiteSpace(apiKey))
+        if (!string.IsNullOrWhiteSpace(apiKey))
         {
-            throw new RimLLMException(
-                LLMError.InvalidKey,
-                "No API key is configured for this decision provider.");
+            return apiKey;
         }
-        return apiKey;
+
+        if (DecisionEndpointRouting.IsPlaintext(endpoint))
+        {
+            return DecisionEndpointRouting.PlaintextPlaceholderKey;
+        }
+
+        throw new RimLLMException(
+            LLMError.InvalidKey,
+            "No API key is configured for this decision provider.");
     }
 
     /// <summary>抓取目前啟用供應商的可用模型；模型清單查詢不消耗推論額度。</summary>
@@ -217,7 +242,7 @@ public class RimLLMDecisionService
         try
         {
             string normalizedEndpoint = NormalizeBaseEndpoint(endpoint, _settings.DecisionProvider);
-            string usableKey = EnsureUsableKey(apiKey);
+            string usableKey = EnsureUsableKey(apiKey, normalizedEndpoint);
             return await FetchModelsCoreAsync(
                     normalizedEndpoint, model, usableKey, _settings.DecisionProvider, cancellationToken)
                 .ConfigureAwait(false);
@@ -239,7 +264,7 @@ public class RimLLMDecisionService
     private async Task<IReadOnlyList<JevModel>> FetchModelsCoreAsync(
         string normalizedEndpoint, string model, string apiKey, string providerId, CancellationToken cancellationToken)
     {
-        using HttpClient http = HttpClientFactory();
+        using HttpClient http = CreateHttpClient(normalizedEndpoint);
         var client = new JevClient(http, CreateOptions(normalizedEndpoint, model, apiKey, providerId));
         IReadOnlyList<JevModel> models =
             await client.GetModelsAsync(new JevRequestOptions(), cancellationToken).ConfigureAwait(false);
@@ -258,14 +283,13 @@ public class RimLLMDecisionService
     {
         try
         {
-            string usableKey = EnsureUsableKey(apiKey);
-
             var builder = new JevDecisionPlanBuilder();
             builder.AddNoul("reachable", "Is this request reachable?", default);
             JevDecisionPlan plan = builder.Build();
 
             string normalizedEndpoint = NormalizeBaseEndpoint(endpoint, _settings.DecisionProvider);
-            using HttpClient http = HttpClientFactory();
+            string usableKey = EnsureUsableKey(apiKey, normalizedEndpoint);
+            using HttpClient http = CreateHttpClient(normalizedEndpoint);
             var client = new JevClient(http, CreateOptions(normalizedEndpoint, model, usableKey));
             var requestOptions = new JevRequestOptions { Model = model };
             await client
@@ -328,7 +352,7 @@ public class RimLLMDecisionService
             DecisionConnection connection = ResolveConnection(providerId, model);
             string selectedModel = connection.Model;
 
-            using HttpClient http = HttpClientFactory();
+            using HttpClient http = CreateHttpClient(connection.Endpoint);
             var client = new JevClient(http, CreateOptions(connection.Endpoint, selectedModel, connection.ApiKey, connection.ProviderId));
             var requestOptions = new JevRequestOptions { Model = selectedModel };
             JevResult result = await client

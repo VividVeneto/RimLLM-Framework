@@ -31,21 +31,20 @@ public class DecisionProviderSelectionTests
     private const string FakeEndpoint = "https://decision.example.test";
 
     private FakeJevHandler _handler;
-    private Func<HttpClient> _originalHttpClientFactory;
+    private Func<string, HttpMessageHandler> _originalMessageHandlerFactory;
 
     [SetUp]
     public void SetUp()
     {
         _handler = new FakeJevHandler();
-        _originalHttpClientFactory = RimLLMDecisionService.HttpClientFactory;
-        RimLLMDecisionService.HttpClientFactory = () =>
-            new HttpClient(_handler) { Timeout = Timeout.InfiniteTimeSpan };
+        _originalMessageHandlerFactory = RimLLMDecisionService.MessageHandlerFactory;
+        RimLLMDecisionService.MessageHandlerFactory = _ => _handler;
     }
 
     [TearDown]
     public void TearDown()
     {
-        RimLLMDecisionService.HttpClientFactory = _originalHttpClientFactory;
+        RimLLMDecisionService.MessageHandlerFactory = _originalMessageHandlerFactory;
         _handler = null;
     }
 

@@ -257,6 +257,19 @@ IReadOnlyList<string> models = await decisions.FetchModelsAsync("TypeSafe", canc
 
 `GetDecisionAvailability` 是純查詢：不發任何網路請求、絕不外洩金鑰本身（只回報「有沒有金鑰」），沒有啟用決策供應商時回報 `Enabled = false` 而不擲例外。`EvaluateWithProviderAsync` 的端點、金鑰與模型都取自該供應商自己的設定，因此完全不會動到玩家的設定；缺金鑰、供應商 id 不存在或是 `Disabled` 標記，都會在送出任何請求之前就以 `RimLLMException`（`InvalidKey` 或 `Unknown`）拒絕，用量則記到實際服務該次請求的供應商帳上，而不是啟用中的那一家。`FetchModelsAsync` 回傳的是純字串的模型名稱（第三方 Mod 不必依賴 `Kkdev92.Jev` 的型別），且模型清單查詢不消耗推論額度。
 
+#### 在自己的機器上跑決策模型
+
+決策服務不限於雲端供應商。只要在自架的機器上說 System One 的 wire format 就能用：**Ollama 0.35 以上**在 `/v1/systemone` 提供 Jev 風格的決策端點，**Unsloth** 則以 TypeSafe 相容的 Jev API 提供本機的 Laya 與 Clef 模型。
+
+設定頁列出三個本機項目——*Ollama*（`http://localhost:11434`，模型 `tev1:4b`）、*Unsloth*（`http://localhost:8888`，模型 `laya`）與*其他本機服務*（`http://localhost:8000`）——各自的端點、模型與模型清單都和其他供應商一樣分開保存。**「偵測本機決策服務」**按鈕會探測已知的本機連接埠並自動填入端點，通常不必手動輸入。
+
+本機端點有兩點要注意：
+
+* **不需要 API 金鑰。** 本機服務多半不驗證憑證，金鑰欄位可以留白，框架會送出佔位值。`https://` 端點仍然一定要有真金鑰，缺金鑰的呼叫會在送出前就以 `InvalidKey` 拒絕。
+* **Jev SDK 只接受 HTTPS origin**，但本機服務講的是明文 HTTP。框架把兩者接起來：交給 SDK 一個同 host 與 port 的 HTTPS origin，等請求真正送上線前再改寫回你的明文端點——本機服務收到的就是一般的明文 HTTP，不需要任何代理或憑證。
+
+明文 HTTP 代表請求（以及其中的遊戲文字）在送往服務的途中沒有加密。請只把它用在自己架設的服務；跨到你不掌控的網路時，請維持 `https://`。
+
 ### 錯誤處理
 
 所有失敗都以 `RimLLMException` 呈現，並帶有與供應商無關的 `LLMError` 代碼：
@@ -345,7 +358,7 @@ ChatResponse response = await client.GetResponseAsync(messages, options);
 8. **推理模型** —— 思維鏈以 MEAI 的 `TextReasoningContent` 交付；每個供應商都能控制思考強度。
 9. **Prompt 快取** —— 以 `CachedContext` 使用服務端快取，用量統計會算出快取省下的費用。
 10. **Embedding SDK** —— 標準 `IEmbeddingGenerator`，後端可選 Gemini、OpenAI、Ollama 或 OpenAI 相容端點，與對話共用每日預算守衛。
-11. **決策模型** —— TypeSafe Jev 與另外九個 System One 相容供應商，模型、端點與金鑰依供應商分開設定，金鑰加密，支援模型清單與真正的決策測試。第三方 Mod 可以查詢玩家有沒有設定決策模型，並用自己選的供應商與模型做決策，沿用框架已保存的金鑰。
+11. **決策模型** —— TypeSafe Jev 與另外九個 System One 相容供應商，模型、端點與金鑰依供應商分開設定，金鑰加密，支援模型清單與真正的決策測試。第三方 Mod 可以查詢玩家有沒有設定決策模型，並用自己選的供應商與模型做決策，沿用框架已保存的金鑰。本機架設也支援：Ollama 0.35 以上、Unsloth 或任何自架的 System One 相容端點，可自動偵測且不需要 API 金鑰。
 12. **原生 Tool Calling** —— 所有供應商都支援 MEAI 的 `AIFunction`，工具在主執行緒執行，可取消尚未派送的工具。
 13. **第三方整合** —— 讓 RimTalk、Auto Translation、Mod Compatibility Checker、簡中自動化：One 改走 RimLLM。
 14. **使用中的模組** —— 設定分頁列出宣告依賴或本次遊戲呼叫過 RimLLM 的模組。

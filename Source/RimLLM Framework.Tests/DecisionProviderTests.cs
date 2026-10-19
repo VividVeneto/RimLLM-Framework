@@ -23,13 +23,58 @@ public class DecisionProviderTests
                 Uri.TryCreate(provider.DefaultEndpoint, UriKind.Absolute, out Uri uri),
                 Is.True,
                 $"{provider.Id} 的預設端點不是絕對 URI");
-            Assert.That(uri.Scheme, Is.EqualTo(Uri.UriSchemeHttps), $"{provider.Id} 必須使用 HTTPS");
             Assert.That(uri.AbsolutePath, Is.EqualTo("/"), $"{provider.Id} 的 BaseAddress 必須是 origin");
+            // 遠端供應商一律 HTTPS；只有本機架設的項目可以用明文 HTTP，
+            // 而且主機必須是迴圈位址——資料與金鑰不該在明文中離開本機。
+            Assert.That(
+                uri.Scheme == Uri.UriSchemeHttps || (uri.Scheme == Uri.UriSchemeHttp && IsLoopbackHost(uri.Host)),
+                Is.True,
+                $"{provider.Id} 必須使用 HTTPS（本機端點才可以用明文 HTTP）");
             Assert.That(provider.DefaultModel, Is.Not.Null.And.Not.Empty, $"{provider.Id} 缺少預設模型");
             Assert.That(
                 provider.PresetModels,
                 Does.Contain(provider.DefaultModel),
                 $"{provider.Id} 的預設模型不在預設清單中");
+        }
+    }
+
+    /// <summary>主機是否為本機迴圈位址（localhost、127.0.0.0/8、::1）。</summary>
+    private static bool IsLoopbackHost(string host)
+    {
+        if (string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return System.Net.IPAddress.TryParse(host, out System.Net.IPAddress address)
+               && System.Net.IPAddress.IsLoopback(address);
+    }
+
+    [Test]
+    public void Catalog_ContainsEveryLocalDecisionProvider()
+    {
+        // 本機架設的三個項目：Ollama、Unsloth 與通用本機項。
+        foreach (string id in new[]
+                 {
+                     RimLLMDecisionProviderCatalog.Ollama,
+                     RimLLMDecisionProviderCatalog.Unsloth,
+                     RimLLMDecisionProviderCatalog.Local
+                 })
+        {
+            Assert.That(RimLLMDecisionProviderCatalog.TryGet(id, out _), Is.True, $"缺少供應商: {id}");
+        }
+
+        // 這三家的預設端點都在本機迴圈位址上走明文 HTTP。
+        foreach (string id in new[]
+                 {
+                     RimLLMDecisionProviderCatalog.Ollama,
+                     RimLLMDecisionProviderCatalog.Unsloth,
+                     RimLLMDecisionProviderCatalog.Local
+                 })
+        {
+            Uri uri = new(RimLLMDecisionProviderCatalog.GetDefaultEndpoint(id), UriKind.Absolute);
+            Assert.That(uri.Scheme, Is.EqualTo(Uri.UriSchemeHttp), id);
+            Assert.That(IsLoopbackHost(uri.Host), Is.True, id);
         }
     }
 

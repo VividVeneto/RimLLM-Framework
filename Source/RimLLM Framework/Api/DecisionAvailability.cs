@@ -32,6 +32,14 @@ public sealed class DecisionAvailability
     public bool HasKey { get; init; }
 
     /// <summary>
+    /// 該供應商是否需要金鑰。
+    /// 明文本機端點（http://）是玩家自架的服務，通常不需要金鑰，框架會送出佔位值；
+    /// https 端點則一定要有金鑰，缺金鑰的呼叫會被拒絕。
+    /// 呼叫端要提示玩家補金鑰時，請用 <c>RequiresKey &amp;&amp; !HasKey</c> 判斷。
+    /// </summary>
+    public bool RequiresKey { get; init; }
+
+    /// <summary>
     /// 解析後的端點（已縮成 origin，不含 <c>/v1/systemone</c> 後綴）；未啟用時為空字串。
     /// </summary>
     public string Endpoint { get; init; } = "";

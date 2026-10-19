@@ -328,6 +328,9 @@ public class RimLLMManager
             model = RimLLMDecisionProviderCatalog.GetDefaultModel(providerId);
         }
 
+        string endpoint = RimLLMDecisionService.NormalizeBaseEndpoint(
+            _settings.GetDecisionEndpoint(providerId), providerId);
+
         return new DecisionAvailability
         {
             Enabled = true,
@@ -335,7 +338,9 @@ public class RimLLMManager
             Model = model,
             // 只回報「有沒有金鑰」，金鑰本身絕不外洩。
             HasKey = !string.IsNullOrWhiteSpace(_settings.GetDecisionApiKey(providerId)),
-            Endpoint = RimLLMDecisionService.NormalizeBaseEndpoint(_settings.GetDecisionEndpoint(providerId), providerId)
+            // 明文本機端點是玩家自架的服務，可以不填金鑰。
+            RequiresKey = !DecisionEndpointRouting.IsPlaintext(endpoint),
+            Endpoint = endpoint
         };
     }
 

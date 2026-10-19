@@ -36,6 +36,73 @@ public static class DecisionSettingsDrawer
     private static readonly Dictionary<string, string> ModelFilters = new(StringComparer.Ordinal);
     private static readonly Dictionary<string, bool> RevealedKeys = new(StringComparer.Ordinal);
 
+    /// <summary>本機端點探測進行中；同一時間只跑一個，避免重複的逾時等待。</summary>
+    private static bool _isDetectingLocal;
+
+    /// <summary>本機端點探測的結果訊息。</summary>
+    private static string _detectStatusMessage = "";
+
+    /// <summary>
+    /// 每一個本機決策服務的探測候選。
+    /// 決策端點要走 System One 的 /v1/models；Ollama 另外也提供 /api/tags，
+    /// 兩者都試一次，服務活著就抓得到。
+    /// </summary>
+    private static readonly Dictionary<string, LocalEndpointProbe.Target[]> LocalProbeTargets =
+        new(StringComparer.Ordinal)
+        {
+            [RimLLMDecisionProviderCatalog.Ollama] =
+            [
+                new LocalEndpointProbe.Target
+                {
+                    Name = "Ollama",
+                    BaseUrl = "http://localhost:11434",
+                    TestUrl = "http://localhost:11434/v1/models"
+                },
+                new LocalEndpointProbe.Target
+                {
+                    Name = "Ollama",
+                    BaseUrl = "http://localhost:11434",
+                    TestUrl = "http://localhost:11434/api/tags"
+                }
+            ],
+            [RimLLMDecisionProviderCatalog.Unsloth] =
+            [
+                new LocalEndpointProbe.Target
+                {
+                    Name = "Unsloth",
+                    BaseUrl = "http://localhost:8888",
+                    TestUrl = "http://localhost:8888/v1/models"
+                }
+            ],
+            [RimLLMDecisionProviderCatalog.Local] =
+            [
+                new LocalEndpointProbe.Target
+                {
+                    Name = "Local",
+                    BaseUrl = "http://localhost:8000",
+                    TestUrl = "http://localhost:8000/v1/models"
+                },
+                new LocalEndpointProbe.Target
+                {
+                    Name = "Ollama",
+                    BaseUrl = "http://localhost:11434",
+                    TestUrl = "http://localhost:11434/v1/models"
+                },
+                new LocalEndpointProbe.Target
+                {
+                    Name = "Unsloth",
+                    BaseUrl = "http://localhost:8888",
+                    TestUrl = "http://localhost:8888/v1/models"
+                }
+            ]
+        };
+
+    /// <summary>該供應商目前的端點是否走明文 HTTP（玩家自架的本機服務）。</summary>
+    private static bool IsPlaintextEndpoint(string providerId)
+    {
+        return DecisionEndpointRouting.IsPlaintext(Settings.GetDecisionEndpoint(providerId));
+    }
+
     public static string GetProviderDisplayName(string providerId)
     {
         RimLLMDecisionProvider provider = RimLLMDecisionProviderCatalog.Get(providerId);
@@ -116,7 +183,7 @@ public static class DecisionSettingsDrawer
 
         if (isActive)
         {
-            if (string.IsNullOrEmpty(Settings.GetDecisionApiKey(providerId)))
+            if (string.IsNullOrEmpty(Settings.GetDecisionApiKey(providerId)) && !IsPlaintextEndpoint(providerId))
             {
                 statusText = "RimLLM_StatusNoApiKey".Translate();
                 statusColor = RimLLMUIStyle.Warning;
@@ -189,7 +256,10 @@ public static class DecisionSettingsDrawer
 
     private static void DrawApiKeySection(Listing_Standard listing, string providerId)
     {
-        listing.Label("RimLLM_DecisionKeyHint".Translate());
+        bool isPlaintext = IsPlaintextEndpoint(providerId);
+        listing.Label(isPlaintext
+            ? "RimLLM_DecisionLocalKeyHint".Translate()
+            : "RimLLM_DecisionKeyHint".Translate());
 
         string currentKey = Settings.GetDecisionApiKey(providerId);
         Rect rowRect = listing.GetRect(30f);
@@ -206,7 +276,8 @@ public static class DecisionSettingsDrawer
             Settings.Write();
         }
 
-        if (string.IsNullOrEmpty(newKey))
+        // 本機端點通常不驗證金鑰，留空是正常狀態，不必提醒玩家補上。
+        if (string.IsNullOrEmpty(newKey) && !isPlaintext)
         {
             using (RimLLMUIStyle.With(font: GameFont.Tiny))
             {
@@ -233,7 +304,87 @@ public static class DecisionSettingsDrawer
             Settings.SetDecisionEndpoint(providerId, newEndpoint?.Trim());
             Settings.Write();
         }
+        listing.Gap(4f);
+
+        if (IsPlaintextEndpoint(providerId))
+        {
+            using (RimLLMUIStyle.With(font: GameFont.Tiny))
+            {
+                listing.Label("RimLLM_DecisionLocalEndpointHint".Translate());
+            }
+            listing.Gap(4f);
+        }
+
+        if (LocalProbeTargets.ContainsKey(providerId))
+        {
+            DrawLocalDetectionControls(listing, providerId);
+        }
+
         listing.Gap(8f);
+    }
+
+    /// <summary>本機決策服務的自動偵測（Ollama／Unsloth 等）：填入端點並回報服務是否在線。</summary>
+    private static void DrawLocalDetectionControls(Listing_Standard listing, string providerId)
+    {
+        Rect detectRect = listing.GetRect(30f);
+        Rect detectBtnRect = new Rect(detectRect.x, detectRect.y, 250f, detectRect.height);
+        Rect detectStatusRect = new Rect(detectRect.x + 260f, detectRect.y, detectRect.width - 260f, detectRect.height);
+
+        if (_isDetectingLocal)
+        {
+            GUI.color = Color.gray;
+            Widgets.ButtonText(detectBtnRect, "RimLLM_DetectingLocal".Translate());
+            GUI.color = Color.white;
+        }
+        else if (Widgets.ButtonText(detectBtnRect, "RimLLM_DecisionDetectLocalBtn".Translate()))
+        {
+            StartDetectLocalEndpoint(providerId);
+        }
+
+        using (RimLLMUIStyle.With(TextAnchor.MiddleLeft))
+        {
+            Widgets.Label(detectStatusRect, _detectStatusMessage);
+        }
+
+        listing.Gap(4f);
+    }
+
+    private static void StartDetectLocalEndpoint(string providerId)
+    {
+        if (_isDetectingLocal || !LocalProbeTargets.TryGetValue(providerId, out LocalEndpointProbe.Target[] targets))
+        {
+            return;
+        }
+
+        _isDetectingLocal = true;
+        _detectStatusMessage = "RimLLM_DetectingLocal".Translate();
+
+        Task.Run(async () =>
+        {
+            // 決策服務常要求金鑰，探測不帶金鑰，因此 401 也算服務活著。
+            LocalEndpointProbe.Target hit = await LocalEndpointProbe
+                .FindReachableAsync(targets, acceptUnauthorized: true)
+                .ConfigureAwait(false);
+
+            RimLLMDispatcher.EnqueueOnMainThread(() =>
+            {
+                _isDetectingLocal = false;
+                if (hit == null)
+                {
+                    _detectStatusMessage = "RimLLM_DetectFailed".Translate();
+                    Messages.Message("RimLLM_MsgDetectFailed".Translate(), MessageTypeDefOf.RejectInput, false);
+                    return;
+                }
+
+                Settings.SetDecisionEndpoint(providerId, hit.BaseUrl);
+                Settings.Write();
+                _detectStatusMessage = "RimLLM_DetectSuccess".Translate(hit.Name, hit.BaseUrl);
+                Messages.Message(
+                    "RimLLM_MsgDetectSuccess".Translate(hit.Name),
+                    MessageTypeDefOf.PositiveEvent,
+                    false);
+            });
+        });
     }
 
     private static void DrawModelSection(

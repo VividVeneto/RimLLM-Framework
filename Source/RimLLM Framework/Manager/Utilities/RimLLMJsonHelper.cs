@@ -9,11 +9,9 @@ using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using System.Text.RegularExpressions;
 using RimLLM_Framework.Core;
-#pragma warning disable S108, S1133, S1643, S2486, S6610 // reason: 批次抑制 MINOR/INFO 規則，語意保留，重構風險高於收益，維持現狀
 
 namespace RimLLM_Framework.Manager;
 
-#pragma warning disable S101, S2342 // reason: RimLLM 為品牌縮寫，公開 API 重命名會破壞下游 Mod，維持現狀
 /// <summary>
 /// JSON 的靜態處理與格式修復輔助工具。
 /// 包含結構化資料的 JSON 補齊、Regex 修復以及 Dummy 物件生成（用於產生 schema 快取）。
@@ -139,7 +137,6 @@ public static class RimLLMJsonHelper
 
     /// <summary>
     /// 修復不完整的 JSON 字串，例如移除 `<think>` 標籤、Markdown 語法、多餘的尾隨逗號以及補齊括號。
-#pragma warning disable S3776 // reason: 單一線性敘事含多分支與遞迴，拆分反而增加重組成本
     /// </summary>
     public static string RepairJson(string json)
     {
@@ -218,7 +215,6 @@ public static class RimLLMJsonHelper
                 expectedClosers.RemoveAt(expectedClosers.Count - 1);
             }
         }
-#pragma warning restore S3776
 
         // 3a. 字串在結尾處未閉合時先補上引號，否則後續補的括號會落在字串內部。
         if (inString)
@@ -367,7 +363,6 @@ public static class RimLLMJsonHelper
     {
         return CreateDummyInstance(type, []);
     }
-#pragma warning disable S3776 // reason: 單一線性敘事含多分支與遞迴，拆分反而增加重組成本
 
     private static object CreateDummyInstance(Type type, HashSet<Type> visitedTypes)
     {
@@ -467,7 +462,6 @@ public static class RimLLMJsonHelper
             return null;
         }
     }
-#pragma warning restore S3776
 
     /// <summary>
     /// 反序列化 JSON 字串為指定型別並驗證所有必填欄位。
@@ -504,7 +498,6 @@ public static class RimLLMJsonHelper
         ValidateRequiredMembers(result, typeof(T), []);
     }
 
-#pragma warning disable S3776 // reason: 遞迴驗證結構化型別屬性與欄位，拆分反而增加呼叫成本
     /// <summary>
     /// 遞迴驗證結構化物件。以「目前遞迴路徑」追蹤型別，而非「整次驗證已看過」：
     /// <paramref name="visitedTypes"/> 只包含目前正在下潛的祖先型別，離開某型別時移除。
@@ -567,9 +560,7 @@ public static class RimLLMJsonHelper
             visitedTypes.Remove(type);
         }
     }
-#pragma warning restore S3776
 
-#pragma warning disable S3776 // reason: 遞迴沿產生的 schema shape 驗證成員，已有 schema 深度與型別路徑防護
     private static void ValidateRequiredJsonMembers(JsonElement value, JsonElement schema)
     {
         if (value.ValueKind == JsonValueKind.Null)
@@ -643,7 +634,6 @@ public static class RimLLMJsonHelper
             }
         }
     }
-#pragma warning restore S3776
 
     private static void ValidateRuntimeMember(
         object value,
@@ -696,5 +686,3 @@ public static class RimLLMJsonHelper
         return false;
     }
 }
-#pragma warning restore S101, S2342
-#pragma warning restore S108, S1133, S1643, S2486, S6610

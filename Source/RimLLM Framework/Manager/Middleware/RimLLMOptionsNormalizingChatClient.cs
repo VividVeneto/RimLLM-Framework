@@ -6,7 +6,6 @@ using Microsoft.Extensions.AI;
 
 namespace RimLLM_Framework.Manager;
 
-#pragma warning disable S101 // reason: RimLLM 為品牌縮寫，維持現狀
 /// <summary>
 /// 把玩家在設定中指定的預設思考強度套進未指定的請求。
 /// </summary>
@@ -53,4 +52,3 @@ internal sealed class RimLLMOptionsNormalizingChatClient : DelegatingChatClient
         return clone;
     }
 }
-#pragma warning restore S101

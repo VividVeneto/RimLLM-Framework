@@ -33,6 +33,7 @@
    * 模型選擇器支援搜尋與常見模型系列的快速過濾。
    * 對話測試頁：每則回覆會標示實際回答的模型、延遲與 token 用量（`~` 表示估計值），可以複製，也可以在串流途中停止。模型選擇器可把備援鏈上某一項釘選到鏈首測試（失敗仍會沿鏈降級），選自動則沿用備援鏈順序。回覆以 Markdig 解析 Markdown 後轉成 Unity rich text；Unity 表達不了的結構（例如表格）以近似方式呈現。
    * Embedding 設定沿用同樣的版面，提供本地伺服器自動偵測，以及會回報向量維度的連線測試。
+   * 決策設定沿用同樣的「供應商清單＋右側詳細設定」版面。每個供應商有自己的啟用開關、模型、端點與 API 金鑰；抓取前先顯示預設模型，也能向閘道拉取清單，連線測試會送出真正的一題決策，而不是只檢查 `/v1/models`。
    * 停止對話會保留當時可見的部分回覆。串流更新與收尾回呼都綁定原請求；停止、清空或送出新請求後，舊回呼不能還原已刪除的歷史、覆蓋新回覆或改變新請求的載入狀態。
 5. **獨立除錯分頁與日誌開關**
    * 獨立的**除錯**設定分頁，含「詳細日誌」核取方塊（預設關閉——每次請求都會寫一行日誌，而 Verse 的共用日誌上限為 10000 筆），讓 Mod 開發者與玩家在排查問題時自由開關本 Mod 逐次請求的日誌輸出。一次性的警告（例如 API 金鑰無法解密、遙測寫檔失敗）則一律記錄。最近請求歷史會在供應商有回報用量時附上該次 token 數；拿不到用量的條目省略不顯示。
@@ -57,11 +58,16 @@
     * 所有線上來源都走 OpenAI SDK：Google 經官方 OpenAI 相容端點存取 Gemini，OpenAI 走其原生端點；Ollama 與自架服務使用 OpenAI SDK 的 `EmbeddingClient`（Ollama 走其 OpenAI 相容的 `/v1` 端點）。因此「Embedding 端點」欄位填的是**服務根位址**（如 `http://localhost:11434/v1`）；填入完整 `/embeddings` 路徑會自動正規化。模型、端點與金鑰依 Embedding 供應商分別保存，切換啟用的供應商不會遺失其他供應商的設定；模型或端點留空代表使用該供應商預設值，金鑰留空則繼承對應對話供應商的金鑰。
     * 設定頁可直接抓取可用模型清單，不必憑記憶輸入名稱；只要伺服器說得出哪些是 embedding 模型，清單就**只留真正的 embedding 模型**：Google 走原生 `/models` 清單（`supportedGenerationMethods` 含 `embedContent`）、Ollama 看 `/api/show` 的 `capabilities`、LM Studio 看 `/api/v0/models` 的 `type`，OpenAI 則依官方型錄固定的 `text-embedding-*` 命名過濾。只有兩者皆無的通用 OpenAI 相容伺服器才退回沒有能力資訊的 `/v1/models`，此時清單只**排序**（把像 embedding 的名稱排前面）而不過濾 —— 伺服器的模型名可能由使用者自訂，過濾會把合法選項藏起來；狀態列會明講清單未過濾。沒有模型清單端點的伺服器仍可手動輸入。
     * Embedding 屬計費 API，因此與一般生成請求共用防濫用與每日預算檢查；HardBlock 會在送出前拒絕已超額請求，WarnOnly 則照常送出。其金鑰採用與供應商金鑰相同的 AES 加密。呼叫端取消保留 `OperationCanceledException`，只有框架自身逾時才轉為 `LLMError.Timeout`。
-11. **原生 Tool Calling（函式呼叫）**
+11. **決策模型**
+    * 框架提供決策服務，透過 TypeSafe 的 System One 協議取得型別化答案（是／否、選項、分數）。其他 Mod 可透過 `RimLLMProvider.CreateDecisionService(modId)` 取得受防護的 client；計畫以 `JevDecisionPlanBuilder` 建一次後重複使用。服務不內建安全閘門、路由或提示工程：計畫與機率解讀都由呼叫端負責。
+    * 設定頁列出 TypeSafe（Jev）、Clef、Liquid d1、Solar Decide、Kev、Tev1、Laya、Span、Microsoft Decision-1 與 OpenAI Decisions。模型、端點與金鑰依供應商分開保存，切換啟用的供應商不會遺失其他設定。模型或端點留空代表使用供應商預設值；端點填 origin，client 會自動接上 `/v1/systemone`。
+    * 所有金鑰採用與供應商金鑰相同的 AES 加密。設定頁可抓取閘道的模型清單（閘道沒有 `/v1/models` 時仍顯示預設模型），連線測試會送出真正的一題決策，因此「模型清單可用但決策回應格式不相容」的閘道會在呼叫端依賴前就被抓出來。
+    * 決策屬計費 API：每次呼叫都經過與對話、embedding 相同的呼叫者記錄、防濫用節流與每日 token 預算，並把供應商回報的輸入／輸出 token 記入用量帳本。所有失敗一律以 `RimLLMException`（附 `LLMError` 代碼）呈現——HTTP 狀態碼走共用的 `LLMErrorMapper` 對照（401 → `InvalidKey`、429 → `RateLimit` 且保留伺服器的 `Retry-After`、5xx → `ProviderOffline`），SDK 逾時對應 `Timeout`、斷網對應 `NetworkError`、協議違規對應 `InvalidResponse`；未啟用供應商或缺金鑰會在送出前就被拒絕。呼叫端取消保留 `OperationCanceledException`。
+12. **原生 Tool Calling（函式呼叫）**
     * 完整支援 Microsoft.Extensions.AI Tool Calling 標準（`AIFunction`、`ChatOptions.Tools`、`FunctionCallContent`、`FunctionResultContent`），所有供應商經共用的 OpenAI 協定路徑提供。
     * 提供 `RimWorldFunctionInvoker.AsMainThreadFunctionInvokingClient()`，自動將工具叫用委派排入 Unity 主執行緒執行，杜絕 RimWorld 跨執行緒崩潰風險。
     * 工具還在佇列等待時取消，會結束等待且不啟動該工具；已開始的工具須自行配合取消 token，取消不會撤銷已完成的副作用。
-12. **第三方整合（強制其他 Mod 改走 RimLLM）**
+13. **第三方整合（強制其他 Mod 改走 RimLLM）**
     * 設定頁新增「第三方整合」分頁，列出 RimLLM 可以接管 LLM 流量的 Mod——目前包含 **RimTalk**（`cj.rimtalk`）、**Auto Translation**（`seohyeon.autotranslation`）**Mod 兼容性檢查器**（`modcompatchecker.main`）與 **簡中自動化：One**（`ow1r.scauto`）。開關開啟後，目標 Mod 的所有請求一律導入 RimLLM 的備援鏈、預算、節流與用量統計。開啟期間目標 Mod 自己的 API 金鑰／模型／端點設定會被忽略；開關即時生效不需重啟，預設**關閉**。
     * 每一列會顯示四種狀態之一：**未安裝**（本機沒有該 Mod）、**未啟用**（已安裝但未在 Mod 清單中啟用，請到清單啟用）、**掛載失敗**，或**已安裝／接管中**。已安裝未啟用的排在未安裝之前。
     * **RimTalk**：提示工程完全不動，訊息（含「Output JSONL」指示）原樣轉送，串流文字逐塊餵進 RimTalk 自己的 `JsonStreamParser`，氣泡仍然像原生一樣一行一行冒出來。推理內容不會混進 JSONL 串流，且這類請求關閉思考以對齊 RimTalk 自身的預設。
@@ -70,8 +76,8 @@
     * **簡中自動化：One**：它的 AI 批量翻譯、品質評審與健康探測都經過同一個私有傳輸方法，因此一個 Harmony 前綴就同時涵蓋 Chat Completions 與 Responses 兩種協議。請求 JSON 交給 RimLLM，再把同協議格式的合成回應餵回該 Mod 自己的解析器，它原有的重試、格式降級與結構化輸出處理照常運作。接管開啟期間它也把端點視為本機，玩家不必填假金鑰；設定頁的「測試連線」與思考參數探測則直接短路為成功。錯誤會對應到它自己的暫時性／永久性錯誤類型，讓它的重試邏輯正確運作；與其他目標不同，這裡不會退回原生路徑（沒有金鑰退回去也只會失敗）。它的 OpenAI Batch API 通道不在涵蓋範圍。它的類別皆為 `internal`，轉接器因此完全以名稱經反射綁定，不需要參考用 DLL。
     * 純 Harmony、全部 fail-soft，框架不實作任何第三方介面，也絕不在類別繼承、介面或欄位層級引用第三方型別，第三方 Mod 未安裝時框架組件仍可安全載入。其 API 若漂移導致掛載失敗，設定頁會直接顯示原因。請求當下 RimLLM 沒有可用供應商（備援鏈為空、缺金鑰）時，自動退回原生路徑並記一筆節流過的警告。
     * 新增其他 Mod 只需一筆登錄＋一個 `RimLLMCompatTarget` 子類；轉接器對著簽入版本庫的參考用 DLL（`Source/Libs/`）編譯，該 DLL 不隨包出貨。
-13. **使用中的模組**
-    * 設定頁「使用中的模組」分頁把兩個來源合併成每個 Mod 一列：已啟用且在 `About.xml` 的 `modDependencies` 宣告依賴 RimLLM Framework 的 Mod，以及本次遊戲曾透過 RimLLM 送出 chat 或 embedding 請求的 `modId`（`RimLLMUsageTracker.CallerModIds`）。呼叫端在請求進入守衛時才記錄，而不是建立 client 時——許多 Mod 一啟動就先取 client 卻從未送出請求；modId 可由呼叫端任意輪換，因此最多只收錄 64 個。因此在第三方整合分頁被接管的 Mod 雖未宣告依賴，送出第一個請求後也會出現。
+14. **使用中的模組**
+    * 設定頁「使用中的模組」分頁把兩個來源合併成每個 Mod 一列：已啟用且在 `About.xml` 的 `modDependencies` 宣告依賴 RimLLM Framework 的 Mod，以及本次遊戲曾透過 RimLLM 送出 chat、embedding 或 decision 請求的 `modId`（`RimLLMUsageTracker.CallerModIds`）。呼叫端在請求進入守衛時才記錄，而不是建立 client 時——許多 Mod 一啟動就先取 client 卻從未送出請求；modId 可由呼叫端任意輪換，因此最多只收錄 64 個。因此在第三方整合分頁被接管的 Mod 雖未宣告依賴，送出第一個請求後也會出現。
     * 已呼叫過的列排在前面並標示「已呼叫」；宣告依賴但尚未呼叫的標示「尚未呼叫」。滑鼠懸停可看到是否宣告依賴，以及所有對應到該 Mod 的 `modId`。
     * `modId` 是呼叫端自取的字串，因此會比對已啟用 Mod 的 packageId（忽略 Steam 後綴）；對不上任何已啟用 Mod 時以原字串顯示。只排除框架自己的兩個設定頁工具（`RimLLM.DebugChat`、`RimLLM.SchemaSelfTest`）；名稱剛好以 `RimLLM.` 開頭的第三方 Mod 仍會列出。
     * 依賴掃描只做一次（Mod 清單在執行期不會變動）；執行期部分只在記錄到的 `modId` 數量改變時才重組。

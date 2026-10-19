@@ -1,5 +1,4 @@
 using System;
-#pragma warning disable S2699, S2701, S3415 // reason: 測試檔案斷言語意保留，Explicit 診斷測試無需斷言
 using System.Collections.Generic;
 using System.Text.Json;
 using System.Text.Json.Nodes;

@@ -252,4 +252,34 @@
   <RimLLM_ConsumersCalled>本次遊戲已透過 RimLLM 送出請求（modId：{0}）</RimLLM_ConsumersCalled>
   <RimLLM_ConsumersNotCalled>本次遊戲尚未透過 RimLLM 送出請求</RimLLM_ConsumersNotCalled>
   <RimLLM_ConsumersUnresolved>此 modId 對不上任何已啟用模組的 packageId</RimLLM_ConsumersUnresolved>
+  <RimLLM_TabDecision>決策模型</RimLLM_TabDecision>
+  <RimLLM_TitleDecisionSettings>決策模型設定 - {0}</RimLLM_TitleDecisionSettings>
+  <RimLLM_DecisionProvidersTitle>決策模型供應商</RimLLM_DecisionProvidersTitle>
+  <RimLLM_EnableDecisionProvider>啟用此決策供應商</RimLLM_EnableDecisionProvider>
+  <RimLLM_DecisionActiveBadge>&lt;color=#4ade80&gt;&lt;b&gt;（使用中的決策服務）&lt;/b&gt;&lt;/color&gt;</RimLLM_DecisionActiveBadge>
+  <RimLLM_DecisionExplanation>決策模型只回答結構化問題（是/否、選項、分數），不會生成文章。其他 Mod 可透過 RimLLM SDK 呼叫此服務；若未啟用任何供應商，就不會進行決策。</RimLLM_DecisionExplanation>
+  <RimLLM_DecisionKeyHint>API 金鑰（所選供應商必填）：</RimLLM_DecisionKeyHint>
+  <RimLLM_DecisionNoKeyWarning>&lt;color=#facc15&gt;此供應商尚未設定 API 金鑰。&lt;/color&gt;</RimLLM_DecisionNoKeyWarning>
+  <RimLLM_DecisionEndpointLabel>自訂端點 URL（僅限 origin）：</RimLLM_DecisionEndpointLabel>
+  <RimLLM_DecisionModelLabel>決策模型名稱：</RimLLM_DecisionModelLabel>
+  <RimLLM_DecisionNoModelList>&lt;color=grey&gt;尚未抓取模型清單。可在下方抓取，或直接在上方輸入模型名稱。&lt;/color&gt;</RimLLM_DecisionNoModelList>
+  <RimLLM_DecisionPresetModelsHint>（目前顯示已知預設模型；也可在下方向伺服器抓取完整清單）</RimLLM_DecisionPresetModelsHint>
+  <RimLLM_DecisionFetchedModelsHint>模型清單已與伺服器同步</RimLLM_DecisionFetchedModelsHint>
+  <RimLLM_DecisionSetAsModel>設為決策模型</RimLLM_DecisionSetAsModel>
+  <RimLLM_DecisionTestBtn>測試連線</RimLLM_DecisionTestBtn>
+  <RimLLM_DecisionTesting>測試中...</RimLLM_DecisionTesting>
+  <RimLLM_DecisionTestSuccess>連線成功（測試決策已送出並取得回應）</RimLLM_DecisionTestSuccess>
+  <RimLLM_DecisionTestFailed>失敗（錯誤：{0}）</RimLLM_DecisionTestFailed>
+  <RimLLM_DecisionStatusActiveDetail>使用中 | {0}</RimLLM_DecisionStatusActiveDetail>
+  <RimLLM_DecisionStatusInactive>未啟用</RimLLM_DecisionStatusInactive>
+  <RimLLM_DecisionProvider_TypeSafe>TypeSafe（Jev）</RimLLM_DecisionProvider_TypeSafe>
+  <RimLLM_DecisionProvider_Clef>Cloudflare（Clef）</RimLLM_DecisionProvider_Clef>
+  <RimLLM_DecisionProvider_Liquid>Liquid（d1）</RimLLM_DecisionProvider_Liquid>
+  <RimLLM_DecisionProvider_Solar>Upstage（Solar Decide）</RimLLM_DecisionProvider_Solar>
+  <RimLLM_DecisionProvider_Kev>Jared Palmer（Kev 4B）</RimLLM_DecisionProvider_Kev>
+  <RimLLM_DecisionProvider_Tev>Together（Tev1 4B）</RimLLM_DecisionProvider_Tev>
+  <RimLLM_DecisionProvider_Laya>Laya</RimLLM_DecisionProvider_Laya>
+  <RimLLM_DecisionProvider_Span>Respan（Span-01）</RimLLM_DecisionProvider_Span>
+  <RimLLM_DecisionProvider_Microsoft>Microsoft（Decision-1）</RimLLM_DecisionProvider_Microsoft>
+  <RimLLM_DecisionProvider_OpenAI>OpenAI Decisions</RimLLM_DecisionProvider_OpenAI>
 </LanguageData>

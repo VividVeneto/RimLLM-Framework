@@ -220,6 +220,22 @@ IEmbeddingGenerator<string, Embedding<float>> generator =
 
 同一次 `GenerateAsync` 的多筆輸入會合成一次批次請求送出（為了上限較小的端點，每 100 筆分一批），不再每筆一次 HTTP 來回；供應商回報的輸入 token 也和對話請求一樣計入用量看板與每日 token 預算。
 
+### 決策模型
+
+需要「有型別的答案」而不是文章時，框架提供決策服務，後端走 TypeSafe 的 System One 協議。計畫建一次就能重複使用：
+
+```csharp
+var builder = new JevDecisionPlanBuilder();
+JevNoulHandle hostile = builder.AddNoul("hostile", "Is the speaker hostile?");
+JevDecisionPlan plan = builder.Build();
+
+RimLLMDecisionClient decisions = RimLLMProvider.CreateDecisionService("myai.mod");
+JevResult result = await decisions.EvaluateAsync(speakerText, plan);
+double hostileProbability = result.Get(hostile).Probability;
+```
+
+決策供應商預設為**停用**。設定頁列出 TypeSafe（Jev）、Clef、Liquid d1、Solar Decide、Kev、Tev1、Laya、Span、Microsoft Decision-1 與 OpenAI Decisions；模型、端點與金鑰都依供應商分開儲存，金鑰走和對話金鑰相同的 AES 加密，頁面可抓取供應商模型清單，連線測試會送出一個真正的一題決策。端點填 origin：客戶端會自動接上 `/v1/systemone`，因此任何相容 System One 的閘道都能用。決策呼叫和對話、embedding 共用呼叫者記錄、防濫用節流與每日 token 預算，錯誤契約也一致：一律以 `RimLLMException`（附 `LLMError` 代碼）呈現（401 對應 `InvalidKey`、429 對應 `RateLimit`、5xx 對應 `ProviderOffline`、SDK 逾時對應 `Timeout`、連不上對應 `NetworkError`），呼叫端取消維持 `OperationCanceledException`；未啟用供應商或缺金鑰會在送出前就以 `RimLLMException` 拒絕。服務本身不內建政策或路由：計畫與「機率代表什麼」都由呼叫端決定。
+
 ### 錯誤處理
 
 所有失敗都以 `RimLLMException` 呈現，並帶有與供應商無關的 `LLMError` 代碼：
@@ -307,9 +323,10 @@ ChatResponse response = await client.GetResponseAsync(messages, options);
 8. **推理模型** —— 思維鏈以 MEAI 的 `TextReasoningContent` 交付；每個供應商都能控制思考強度。
 9. **Prompt 快取** —— 以 `CachedContext` 使用服務端快取，用量統計會算出快取省下的費用。
 10. **Embedding SDK** —— 標準 `IEmbeddingGenerator`，後端可選 Gemini、OpenAI、Ollama 或 OpenAI 相容端點，與對話共用每日預算守衛。
-11. **原生 Tool Calling** —— 所有供應商都支援 MEAI 的 `AIFunction`，工具在主執行緒執行，可取消尚未派送的工具。
-12. **第三方整合** —— 讓 RimTalk、Auto Translation、Mod Compatibility Checker、簡中自動化：One 改走 RimLLM。
-13. **使用中的模組** —— 設定分頁列出宣告依賴或本次遊戲呼叫過 RimLLM 的模組。
+11. **決策模型** —— TypeSafe Jev 與另外九個 System One 相容供應商，模型、端點與金鑰依供應商分開設定，金鑰加密，支援模型清單與真正的決策測試。
+12. **原生 Tool Calling** —— 所有供應商都支援 MEAI 的 `AIFunction`，工具在主執行緒執行，可取消尚未派送的工具。
+13. **第三方整合** —— 讓 RimTalk、Auto Translation、Mod Compatibility Checker、簡中自動化：One 改走 RimLLM。
+14. **使用中的模組** —— 設定分頁列出宣告依賴或本次遊戲呼叫過 RimLLM 的模組。
 
 各項的詳細行為與設計理由：**[Documentation/FEATURES_zh.md](Documentation/FEATURES_zh.md)**。
 

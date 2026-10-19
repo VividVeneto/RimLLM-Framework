@@ -11,7 +11,6 @@ using RimLLM_Framework.Manager;
 using RimLLM_Framework.Mod;
 using RimLLM_Framework.Providers;
 using ChatMessage = Microsoft.Extensions.AI.ChatMessage;
-#pragma warning disable S3415 // reason: 測試斷言語意正確，Sonar 順序偵測誤判
 
 namespace RimLLM_Framework.Tests;
 
@@ -1270,4 +1269,3 @@ public class DispatcherAndCircuitBreakerTests
 
     private string okStr(string s) => s;
 }
-#pragma warning restore S3415

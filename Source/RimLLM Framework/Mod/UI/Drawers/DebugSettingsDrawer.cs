@@ -29,7 +29,6 @@ public static class DebugSettingsDrawer
     /// 刻意包含 <c>Nullable&lt;T&gt;</c>、清單與列舉：這三者正是各供應商 schema 方言差異最大的地方，
     /// 只用純量成員的話兩種方言會產出相同的 schema，測不出方言接線是否正確。
     /// </summary>
-#pragma warning disable S1144, S3459 // reason: 供序列化/反射與 Schema 自我檢查使用，未賦值與未使用屬預期，維持現狀
     private sealed class SchemaSelfTestPayload
     {
         public string Summary { get; set; }
@@ -37,7 +36,6 @@ public static class DebugSettingsDrawer
         public int? OptionalScore { get; set; }
         public List<string> Tags { get; set; }
     }
-#pragma warning restore S1144, S3459
 
     /// <summary>
     /// 獲取偵錯分頁詳細內容的滾動高度。
@@ -64,7 +62,6 @@ public static class DebugSettingsDrawer
     /// <summary>
     /// 繪製偵錯設定與日誌。
     /// </summary>
-#pragma warning disable S3776 // reason: 單一線性敘事含多分支與遞迴，拆分反而增加重組成本
     public static void DrawDebugSettings(Listing_Standard listing)
     {
         listing.Label("RimLLM_TitleDebugExplanation".Translate());
@@ -141,7 +138,6 @@ public static class DebugSettingsDrawer
         Rect clearBtnRect = new Rect(headerRect.x + headerRect.width - 140f, headerRect.y + 2f, 140f, headerRect.height - 4f);
 
         using (RimLLMUIStyle.With(TextAnchor.MiddleLeft))
-#pragma warning disable S1192, S3358 // reason: 批次抑制 MINOR/INFO 規則，語意保留，重構風險高於收益，維持現狀
         {
             Widgets.Label(labelRect, "<b>" + "RimLLM_RecentRequests".Translate(30) + "</b>");
         }
@@ -211,7 +207,6 @@ public static class DebugSettingsDrawer
         Text.Font = GameFont.Small;
         Widgets.EndScrollView();
     }
-#pragma warning restore S3776
 
     /// <summary>上一次格式化所依據的日誌快照，與格式化後的顯示列一一對應。</summary>
     private static readonly List<RimLLMManager.RequestLogEntry> _cachedLogSnapshot = [];
@@ -318,7 +313,6 @@ public static class DebugSettingsDrawer
         });
     }
 
-#pragma warning disable S3776 // reason: 單一線性敘事含多分支與遞迴，拆分反而增加重組成本
     private static void ExportDiagnostics()
     {
         try
@@ -404,7 +398,6 @@ public static class DebugSettingsDrawer
             Messages.Message("RimLLM_ExportDiagFailed".Translate(RimLLMLog.SanitizeForLog(ex.Message, 200)), MessageTypeDefOf.RejectInput, false);
         }
     }
-#pragma warning restore S3776
 
     private static string MaskEndpoint(string endpoint)
     {
@@ -421,4 +414,3 @@ public static class DebugSettingsDrawer
         }
     }
 }
-#pragma warning restore S1192, S3358

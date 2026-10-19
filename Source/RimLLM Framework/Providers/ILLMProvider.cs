@@ -5,7 +5,6 @@ using Microsoft.Extensions.AI;
 
 namespace RimLLM_Framework.Providers;
 
-#pragma warning disable S101, S2342 // reason: RimLLM 為品牌縮寫，公開 API 重命名會破壞下游 Mod，維持現狀
 /// <summary>
 /// LLM 供應商對接介面（標準 MEAI IChatClient 產出、能力宣告與診斷）。
 /// </summary>
@@ -46,4 +45,3 @@ public interface ILLMProvider
     /// <returns>模型名稱清單</returns>
     Task<List<string>> FetchAvailableModelsAsync();
 }
-#pragma warning restore S101, S2342

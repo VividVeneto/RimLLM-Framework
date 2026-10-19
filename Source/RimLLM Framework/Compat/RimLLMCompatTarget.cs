@@ -6,7 +6,6 @@ using Verse;
 
 namespace RimLLM_Framework.Compat;
 
-#pragma warning disable S101 // reason: RimLLM 為品牌縮寫，維持現狀
 /// <summary>
 /// 一個可被 RimLLM 強制接管 LLM 流量的第三方 Mod。
 /// </summary>
@@ -124,4 +123,3 @@ internal sealed class DelegateCompatTarget : RimLLMCompatTarget
         _onTakeoverToggled?.Invoke(enabled);
     }
 }
-#pragma warning restore S101

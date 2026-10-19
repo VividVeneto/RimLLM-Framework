@@ -6,7 +6,6 @@ using NUnit.Framework;
 using NUnit.Framework.Legacy;
 using RimLLM_Framework.Providers;
 using ChatMessage = Microsoft.Extensions.AI.ChatMessage;
-#pragma warning disable S2701 // reason: 測試斷言語意保留，Sonar 規則誤判
 
 namespace RimLLM_Framework.Tests;
 
@@ -495,4 +494,3 @@ public class TestOpenAICompatibleProvider : OpenAICompatibleProvider
         return new OpenAIChatClientAdapter(rawClient, this, model);
     }
 }
-#pragma warning restore S2701

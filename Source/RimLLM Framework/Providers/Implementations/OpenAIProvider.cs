@@ -171,11 +171,9 @@ public class OpenAIProvider : ILLMProvider
 
         // schema 是直接拼進送出的 JSON 的，不合法就會毀掉整個 request body。
         // 先在本地解析一次，讓錯誤停在組裝階段，而不是換成服務端一句沒有線索的 400。
-#pragma warning disable S108 // reason: 僅為驗證 JSON 合法性，解析成功即表示合法，無需額外操作
         using (JsonDocument.Parse(schemaJson))
         { // 刻意空區塊：僅驗證 schemaJson 為合法 JSON
         }
-#pragma warning restore S108
 
         return "{\"type\":\"json_schema\",\"json_schema\":{\"name\":\"custom_type\"," +
                "\"description\":\"RimLLM structured response\"," +
@@ -239,7 +237,6 @@ public class OpenAIProvider : ILLMProvider
     /// <summary>掛在送出去的 ChatOptions 上，記錄這次請求實際送出的思考強度字面值（null 代表沒送）。</summary>
     private const string SentEffortLiteralKey = "rimllm_sent_effort_literal";
 
-#pragma warning disable S3776 // reason: 單一線性敘事含多分支與遞迴，拆分反而增加重組成本
     private void ApplyReasoningAndSampling(ChatOptions requestOptions, string model, ChatOptions options, string responseFormatJson)
     {
         ReasoningEffort? effort = requestOptions?.Reasoning?.Effort;
@@ -330,7 +327,6 @@ public class OpenAIProvider : ILLMProvider
             return chatCompletionOptions;
         };
     }
-#pragma warning restore S3776
 
     /// <summary>
     /// 解析呼叫端是否要求關閉思考。RimLLMChatOptions 直接帶屬性，框架管線則以 AdditionalProperties 轉遞。
@@ -870,4 +866,3 @@ public class OpenAIProvider : ILLMProvider
     /// </summary>
     private const string PlaceholderApiKey = "not-required";
 }
-#pragma warning restore S108, S2325, S3267

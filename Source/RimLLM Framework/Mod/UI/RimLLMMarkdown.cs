@@ -10,7 +10,6 @@ using Markdig.Syntax.Inlines;
 
 namespace RimLLM_Framework.Mod;
 
-#pragma warning disable S101, S2342 // reason: RimLLM 為品牌縮寫，公開 API 重命名會破壞下游 Mod，維持現狀
 /// <summary>
 /// 基於 Markdig AST 解析引擎，把 Markdown 轉成 Unity 舊版 IMGUI 能顯示的 rich text。
 ///
@@ -627,4 +626,3 @@ public static class RimLLMMarkdown
         }
     }
 }
-#pragma warning restore S101, S2342

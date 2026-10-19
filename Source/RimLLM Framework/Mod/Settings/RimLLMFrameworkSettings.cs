@@ -3,13 +3,12 @@ using System.Collections.Generic;
 using Microsoft.Extensions.AI;
 using RimLLM_Framework.Core;
 using RimLLM_Framework.Manager;
+using RimLLM_Framework.Manager.Services;
 using RimWorld;
 using Verse;
-#pragma warning disable S2365, S3260, S3267, S3459 // reason: 批次抑制 MINOR/INFO 規則，語意保留，重構風險高於收益，維持現狀
 
 namespace RimLLM_Framework.Mod;
 
-#pragma warning disable S101, S2342 // reason: RimLLM 為品牌縮寫，公開 API 重命名會破壞下游 Mod，維持現狀
 /// <summary>
 /// RimWorld Mod 設定檔。
 /// 將複雜的字典結構序列化為單一 JSON 字串儲存，並在序列化時調用 EncryptionUtility 加解密 API 金鑰。
@@ -125,6 +124,29 @@ public class RimLLMFrameworkSettings : ModSettings, IRimLLMSettings, IContextWin
         set => SetEmbeddingApiKey(EmbeddingProvider, value);
     }
 
+    /// <summary>
+    /// 目前啟用的決策模型供應商。預設停用，與 Embedding 模組一致。
+    /// </summary>
+    public string DecisionProvider { get; set; } = RimLLMDecisionProviderCatalog.Disabled;
+
+    public string DecisionModel
+    {
+        get => GetDecisionModel(DecisionProvider);
+        set => SetDecisionModel(DecisionProvider, value);
+    }
+
+    public string DecisionEndpoint
+    {
+        get => GetDecisionEndpoint(DecisionProvider);
+        set => SetDecisionEndpoint(DecisionProvider, value);
+    }
+
+    public string DecisionApiKey
+    {
+        get => GetDecisionApiKey(DecisionProvider);
+        set => SetDecisionApiKey(DecisionProvider, value);
+    }
+
     public float DailyAccumulatedCost
     {
         get => _telemetry.DailyAccumulatedCost;
@@ -220,6 +242,11 @@ public class RimLLMFrameworkSettings : ModSettings, IRimLLMSettings, IContextWin
     private readonly Dictionary<string, string> _undecryptableEmbeddingApiKeys = new(StringComparer.Ordinal);
     private string _undecryptableEmbeddingApiKey;
     private string _undecryptableEmbeddingApiKeyProvider;
+
+    private readonly Dictionary<string, string> _decisionModels = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _decisionEndpoints = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _decisionApiKeys = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _undecryptableDecisionApiKeys = new(StringComparer.Ordinal);
 
     /// <summary>中國端點切換旗標。鍵由 <see cref="ProviderIds.HasChinaEndpoint"/> 決定，不另外手寫一份清單。</summary>
     private readonly Dictionary<string, bool> _chinaModeProviders = BuildChinaModeMap();
@@ -317,6 +344,16 @@ public class RimLLMFrameworkSettings : ModSettings, IRimLLMSettings, IContextWin
         public Dictionary<string, string> EmbeddingEndpoints;
         public Dictionary<string, string> EncryptedEmbeddingApiKeys;
         public Dictionary<string, bool> CompatTakeovers;
+        public string DecisionProvider = RimLLMDecisionProviderCatalog.Disabled;
+        public Dictionary<string, string> DecisionModels;
+        public Dictionary<string, string> DecisionEndpoints;
+        public Dictionary<string, string> EncryptedDecisionApiKeys;
+        // 舊版單一供應商欄位。目前仍寫出目前啟用供應商的值作為跨格式冗餘（供降級情境），
+        // 僅在新存檔缺少字典欄位時用於載入遷移，載入時字典欄位一律優先；金鑰欄位一律 null，避免明文殘留。
+        public string DecisionModel = "";
+        public string DecisionEndpoint = "";
+        public string DecisionApiKey = "";
+        public string EncryptedDecisionApiKey;
 
         /// <summary>設定格式版本，供一次性遷移判斷；舊檔沒有這個欄位，讀成 0。</summary>
         public int SettingsVersion;
@@ -329,7 +366,6 @@ public class RimLLMFrameworkSettings : ModSettings, IRimLLMSettings, IContextWin
     /// </summary>
     private const int CurrentSettingsVersion = 1;
 #pragma warning restore 0649
-#pragma warning disable S3776 // reason: 單一線性敘事含多分支與遞迴，拆分反而增加重組成本
 
     public override void ExposeData()
     {
@@ -399,6 +435,22 @@ public class RimLLMFrameworkSettings : ModSettings, IRimLLMSettings, IContextWin
                     encryptedEmbeddingApiKey = null;
                 }
 
+                var encryptedDecisionKeys = new Dictionary<string, string>();
+                foreach (var kvp in _decisionApiKeys)
+                {
+                    if (TryEncryptForSave(kvp.Value, out string cipher))
+                    {
+                        encryptedDecisionKeys[kvp.Key] = cipher;
+                    }
+                }
+                foreach (var kvp in _undecryptableDecisionApiKeys)
+                {
+                    if (!encryptedDecisionKeys.ContainsKey(kvp.Key))
+                    {
+                        encryptedDecisionKeys[kvp.Key] = kvp.Value;
+                    }
+                }
+
                 var dto = new SettingsDto
                 {
                     FallbackChain = this.FallbackChain,
@@ -435,6 +487,14 @@ public class RimLLMFrameworkSettings : ModSettings, IRimLLMSettings, IContextWin
                     EmbeddingEndpoints = new Dictionary<string, string>(this._embeddingEndpoints),
                     EncryptedEmbeddingApiKeys = encryptedEmbeddingKeys,
                     CompatTakeovers = new Dictionary<string, bool>(this._compatTakeovers),
+                    DecisionProvider = this.DecisionProvider,
+                    DecisionModels = new Dictionary<string, string>(this._decisionModels),
+                    DecisionEndpoints = new Dictionary<string, string>(this._decisionEndpoints),
+                    EncryptedDecisionApiKeys = encryptedDecisionKeys,
+                    DecisionModel = this.GetDecisionModelRaw(this.DecisionProvider),
+                    DecisionEndpoint = this.GetDecisionEndpointRaw(this.DecisionProvider),
+                    DecisionApiKey = null,
+                    EncryptedDecisionApiKey = null,
                     SettingsVersion = CurrentSettingsVersion
                 };
 
@@ -598,6 +658,73 @@ public class RimLLMFrameworkSettings : ModSettings, IRimLLMSettings, IContextWin
                                 this._embeddingEndpoints[this.EmbeddingProvider] = dto.EmbeddingEndpoint;
                             }
 
+                            string decisionProvider = SanitizeDecisionProvider(dto.DecisionProvider);
+                            this.DecisionProvider = decisionProvider;
+
+                            _decisionModels.Clear();
+                            _decisionEndpoints.Clear();
+                            if (dto.DecisionModels != null)
+                            {
+                                foreach (var kvp in dto.DecisionModels) _decisionModels[kvp.Key] = kvp.Value;
+                            }
+                            else if (!string.IsNullOrEmpty(dto.DecisionModel) &&
+                                     decisionProvider != RimLLMDecisionProviderCatalog.Disabled)
+                            {
+                                _decisionModels[decisionProvider] = dto.DecisionModel;
+                            }
+
+                            if (dto.DecisionEndpoints != null)
+                            {
+                                foreach (var kvp in dto.DecisionEndpoints) _decisionEndpoints[kvp.Key] = kvp.Value;
+                            }
+                            else if (!string.IsNullOrEmpty(dto.DecisionEndpoint) &&
+                                     decisionProvider != RimLLMDecisionProviderCatalog.Disabled)
+                            {
+                                _decisionEndpoints[decisionProvider] = dto.DecisionEndpoint;
+                            }
+
+                            _decisionApiKeys.Clear();
+                            _undecryptableDecisionApiKeys.Clear();
+                            if (dto.EncryptedDecisionApiKeys != null)
+                            {
+                                foreach (var kvp in dto.EncryptedDecisionApiKeys)
+                                {
+                                    string plain = EncryptionUtility.Decrypt(kvp.Value);
+                                    if (plain != null)
+                                    {
+                                        _decisionApiKeys[kvp.Key] = plain;
+                                    }
+                                    else
+                                    {
+                                        // 解密失敗時保留密文，下次存檔才不會把玩家的金鑰清空。
+                                        _undecryptableDecisionApiKeys[kvp.Key] = kvp.Value;
+                                    }
+                                }
+                            }
+
+                            if (decisionProvider != RimLLMDecisionProviderCatalog.Disabled &&
+                                !_decisionApiKeys.ContainsKey(decisionProvider) &&
+                                !_undecryptableDecisionApiKeys.ContainsKey(decisionProvider))
+                            {
+                                if (!string.IsNullOrEmpty(dto.EncryptedDecisionApiKey))
+                                {
+                                    string plain = EncryptionUtility.Decrypt(dto.EncryptedDecisionApiKey);
+                                    if (plain != null)
+                                    {
+                                        _decisionApiKeys[decisionProvider] = plain;
+                                    }
+                                    else
+                                    {
+                                        _undecryptableDecisionApiKeys[decisionProvider] = dto.EncryptedDecisionApiKey;
+                                    }
+                                }
+                                else if (!string.IsNullOrEmpty(dto.DecisionApiKey))
+                                {
+                                    // 更舊的明文格式：載入後立刻轉入加密 map，下次存檔即加密。
+                                    _decisionApiKeys[decisionProvider] = dto.DecisionApiKey;
+                                }
+                            }
+
                             _compatTakeovers.Clear();
                             if (dto.CompatTakeovers != null)
                             {
@@ -653,7 +780,6 @@ public class RimLLMFrameworkSettings : ModSettings, IRimLLMSettings, IContextWin
             }
         }
     }
-#pragma warning restore S3776
 
     /// <summary>
     /// 設定檔中的預算策略值正規化。已移除的策略（SilentMocking / FallbackToFree / DialogPrompt）
@@ -663,6 +789,21 @@ public class RimLLMFrameworkSettings : ModSettings, IRimLLMSettings, IContextWin
     internal static int SanitizeBudgetPolicy(int stored)
     {
         return stored < 0 || stored > MaxBudgetPolicy ? 0 : stored;
+    }
+
+    /// <summary>
+    /// 設定檔中的決策供應商 id 正規化。空值保持 Disabled；未知 id（手動編輯或跨版本搬運）也退回 Disabled：
+    /// <see cref="DecisionProvider"/> 欄位本身承載啟用狀態，不得擅自把未知供應商換成別家已啟用，
+    /// 否則一座沒有決策服務的存檔會帶著「TypeSafe 已啟用、但沒有金鑰」的狀態回到遊戲。
+    /// </summary>
+    internal static string SanitizeDecisionProvider(string stored)
+    {
+        if (string.IsNullOrEmpty(stored) ||
+            !RimLLMDecisionProviderCatalog.TryGet(stored, out _))
+        {
+            return RimLLMDecisionProviderCatalog.Disabled;
+        }
+        return stored;
     }
 
     /// <summary>
@@ -1138,6 +1279,101 @@ public class RimLLMFrameworkSettings : ModSettings, IRimLLMSettings, IContextWin
             _embeddingApiKeys[provider] = key;
         }
     }
+
+    public static string GetDefaultDecisionModel(string provider)
+    {
+        return RimLLMDecisionProviderCatalog.GetDefaultModel(provider);
+    }
+
+    public static string GetDefaultDecisionEndpoint(string provider)
+    {
+        return RimLLMDecisionProviderCatalog.GetDefaultEndpoint(provider);
+    }
+
+    public string GetDecisionModel(string provider)
+    {
+        lock (_settingsLock)
+        {
+            if (!string.IsNullOrEmpty(provider) &&
+                _decisionModels.TryGetValue(provider, out string value) &&
+                !string.IsNullOrEmpty(value))
+            {
+                return value;
+            }
+            return GetDefaultDecisionModel(provider);
+        }
+    }
+
+    /// <summary>玩家實際輸入的模型名稱（未設定時為空字串），供設定欄位顯示。</summary>
+    public string GetDecisionModelRaw(string provider)
+    {
+        lock (_settingsLock)
+        {
+            return !string.IsNullOrEmpty(provider) && _decisionModels.TryGetValue(provider, out string value)
+                ? value ?? ""
+                : "";
+        }
+    }
+
+    public void SetDecisionModel(string provider, string model)
+    {
+        if (string.IsNullOrEmpty(provider)) return;
+        lock (_settingsLock)
+        {
+            _decisionModels[provider] = model ?? "";
+        }
+    }
+
+    public string GetDecisionEndpoint(string provider)
+    {
+        lock (_settingsLock)
+        {
+            if (!string.IsNullOrEmpty(provider) &&
+                _decisionEndpoints.TryGetValue(provider, out string value) &&
+                !string.IsNullOrEmpty(value))
+            {
+                return value;
+            }
+            return GetDefaultDecisionEndpoint(provider);
+        }
+    }
+
+    /// <summary>玩家實際輸入的端點（未設定時為空字串），供設定欄位顯示。</summary>
+    public string GetDecisionEndpointRaw(string provider)
+    {
+        lock (_settingsLock)
+        {
+            return !string.IsNullOrEmpty(provider) && _decisionEndpoints.TryGetValue(provider, out string value)
+                ? value ?? ""
+                : "";
+        }
+    }
+
+    public void SetDecisionEndpoint(string provider, string endpoint)
+    {
+        if (string.IsNullOrEmpty(provider)) return;
+        lock (_settingsLock)
+        {
+            _decisionEndpoints[provider] = endpoint ?? "";
+        }
+    }
+
+    public string GetDecisionApiKey(string provider)
+    {
+        lock (_settingsLock)
+        {
+            return !string.IsNullOrEmpty(provider) && _decisionApiKeys.TryGetValue(provider, out string value)
+                ? value
+                : "";
+        }
+    }
+
+    public void SetDecisionApiKey(string provider, string key)
+    {
+        if (string.IsNullOrEmpty(provider)) return;
+        lock (_settingsLock)
+        {
+            _decisionApiKeys[provider] = key ?? "";
+        }
+    }
 }
-#pragma warning restore S101, S2342
-#pragma warning restore S2365, S3260, S3267, S3459

@@ -3,7 +3,7 @@
   <name>RimLLM Framework</name>
   <author>綠菇</author>
   <packageId>GreenMushroom.RimLLMFramework</packageId>
-  <modVersion>2026.10.18.4</modVersion>
+  <modVersion>2026.10.19.2</modVersion>
   <supportedVersions>
     <li>1.7</li>
   </supportedVersions>

@@ -9,7 +9,6 @@ using RimLLM_Framework.Core;
 
 namespace RimLLM_Framework.Manager;
 
-#pragma warning disable S101 // reason: RimLLM 為品牌縮寫，維持現狀
 /// <summary>
 /// 備援路由：依設定的 fallback chain 逐一嘗試「供應商 + 模型」候選，
 /// 並把成敗回報給健康帳本與用量日誌。
@@ -367,4 +366,3 @@ internal sealed class RimLLMFailoverChatClient : FailoverChatClient
         return base.GetService(serviceType, serviceKey);
     }
 }
-#pragma warning restore S101

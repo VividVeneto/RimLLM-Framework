@@ -6,11 +6,9 @@ using System.Threading.Tasks;
 using RimLLM_Framework.Core;
 using RimWorld;
 using Verse;
-#pragma warning disable S108, S1104, S2325, S3267, S3887, S2696 // reason: 批次抑制 MINOR/INFO 規則，語意保留，重構風險高於收益，維持現狀；S2696 靜態節流跨實例共享為設計意圖
 
 namespace RimLLM_Framework.Manager;
 
-#pragma warning disable S101, S2342 // reason: RimLLM 為品牌縮寫，公開 API 重命名會破壞下游 Mod，維持現狀
 /// <summary>
 /// 管理並統計 API 呼叫量、Token 使用度、連線日誌記錄、API 計費預估與每日預算審查。
 /// 支援對設定檔的磁碟存檔寫入實施節流（防震）保護。
@@ -741,5 +739,3 @@ public class RimLLMUsageTracker
 
     #endregion
 }
-#pragma warning restore S101, S2342
-#pragma warning restore S108, S1104, S2325, S3267, S3887, S2696

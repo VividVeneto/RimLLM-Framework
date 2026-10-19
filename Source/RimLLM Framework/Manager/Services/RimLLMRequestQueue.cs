@@ -3,11 +3,9 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using RimLLM_Framework.Core;
-#pragma warning disable S3260, S6966 // reason: 批次抑制 MINOR/INFO 規則，語意保留，重構風險高於收益，維持現狀
 
 namespace RimLLM_Framework.Manager;
 
-#pragma warning disable S101, S2342 // reason: RimLLM 為品牌縮寫，公開 API 重命名會破壞下游 Mod，維持現狀
 /// <summary>
 /// 管理 API 請求的優先權佇列與並行限流。
 /// 依據優先級（數值大者先行）與先進先出（FIFO）規則調度執行。
@@ -171,5 +169,3 @@ internal class RimLLMRequestQueue
         }
     }
 }
-#pragma warning restore S101, S2342
-#pragma warning restore S3260, S6966

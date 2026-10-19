@@ -3,7 +3,6 @@ using System.Collections.Generic;
 
 namespace RimLLM_Framework;
 
-#pragma warning disable S101, S2342 // reason: RimLLM 為品牌縮寫，公開 API 重命名會破壞下游 Mod，維持現狀
 /// <summary>
 /// 內建供應商識別碼常數。
 /// 集中定義以避免魔法字串散落各處；第三方 Mod 亦可引用。
@@ -86,4 +85,3 @@ public static class ProviderIds
         return colonIndex > 0 ? fallbackEntry.Substring(0, colonIndex) : fallbackEntry;
     }
 }
-#pragma warning restore S101, S2342

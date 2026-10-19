@@ -6,7 +6,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using RimLLM_Framework.Core;
 using RimLLM_Framework.Providers;
-#pragma warning disable S1066, S2325 // reason: 批次抑制 MINOR/INFO 規則，語意保留，重構風險高於收益，維持現狀
 
 namespace RimLLM_Framework.Manager;
 
@@ -14,7 +13,6 @@ namespace RimLLM_Framework.Manager;
 /// 負責備用鏈（Fallback Chain）維護、Provider 失敗後自動嘗試下一個備用 Provider、
 /// 備用管道執行與健康帳本 (Health Ledger) 連動等邏輯的服務元件。
 /// </summary>
-#pragma warning disable S101 // reason: RimLLM 為品牌縮寫，公開 API 重命名會破壞下游 Mod，維持現狀
 public class RimLLMFallbackPipeline
 {
     private readonly IRimLLMSettings _settings;
@@ -230,9 +228,7 @@ public class RimLLMFallbackPipeline
         candidates.AddRange(rotated);
     }
 
-#pragma warning disable S2245 // reason: 僅用於重試抖動與負載均衡輪詢，非安全相關隨機，無需密碼學強度
     private static readonly Random SharedRandom = new();
-#pragma warning restore S2245
     private static readonly object RandomLock = new();
 
     // Random 非執行緒安全，重試抖動可能來自不同的背景執行緒；共用加鎖實例。
@@ -304,9 +300,7 @@ public class RimLLMFallbackPipeline
     private List<string> GetFallbackChainSnapshot()
     {
         var chain = _settings.FallbackChain;
-#pragma warning disable S1168 // reason: null 表示未配置 fallback 鏈，與空集合語意不同，呼叫端需區分
         return chain != null ? new List<string>(chain) : null;
-#pragma warning restore S1168
     }
 
     private bool IsProviderUsable(string providerId, ILLMProvider provider, Dictionary<string, string> apiKeyCache)
@@ -421,5 +415,3 @@ public class RimLLMFallbackPipeline
         return true;
     }
 }
-#pragma warning restore S101
-#pragma warning restore S1066, S2325

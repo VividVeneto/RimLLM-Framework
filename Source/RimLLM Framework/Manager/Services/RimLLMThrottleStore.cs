@@ -5,7 +5,6 @@ using RimLLM_Framework.Core;
 
 namespace RimLLM_Framework.Manager;
 
-#pragma warning disable S101 // reason: RimLLM 為品牌縮寫，維持現狀
 /// <summary>
 /// 各個 Mod 的請求時間視窗與冷卻狀態。
 /// </summary>
@@ -126,4 +125,3 @@ internal sealed class RimLLMThrottleStore
         }
     }
 }
-#pragma warning restore S101

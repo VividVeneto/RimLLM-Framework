@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.AI;
 using RimLLM_Framework.Core;
+using RimLLM_Framework.Manager.Services;
 using RimLLM_Framework.Providers;
 
 namespace RimLLM_Framework.Manager;
@@ -19,7 +20,6 @@ namespace RimLLM_Framework.Manager;
 /// - 備用管道 (RimLLMFallbackPipeline)
 /// - 請求佇列 (RimLLMRequestQueue)
 /// </summary>
-#pragma warning disable S101 // reason: RimLLM 為品牌縮寫，公開 API 重命名會破壞下游 Mod，維持現狀
 public class RimLLMManager
 {
     private readonly IRimLLMSettings _settings;
@@ -30,12 +30,14 @@ public class RimLLMManager
 
     private readonly RimLLMUsageTracker _usageTracker;
     private readonly RimLLMEmbeddingService _embeddingService;
+    private readonly RimLLMDecisionService _decisionService;
     private readonly RimLLMFallbackPipeline _fallbackPipeline;
     private readonly RimLLMThrottleStore _throttleStore;
     private readonly RimLLMRequestQueue _requestQueue;
     private readonly RimLLMHealthLedger _healthLedger;
 
     public RimLLMEmbeddingService EmbeddingService => _embeddingService;
+    public RimLLMDecisionService DecisionService => _decisionService;
     public RimLLMUsageTracker UsageTracker => _usageTracker;
     internal IRimLLMSettings Settings => _settings;
 
@@ -99,6 +101,7 @@ public class RimLLMManager
         RegisterBuiltInProvider(new Player2Provider(settings));
 
         _embeddingService = new RimLLMEmbeddingService(settings);
+        _decisionService = new RimLLMDecisionService(settings);
     }
 
     private void RegisterBuiltInProvider(ILLMProvider provider)
@@ -287,7 +290,17 @@ public class RimLLMManager
         return new RimLLMEmbeddingClient(this, modId);
     }
 
-    /// <summary>執行指定 Mod 的防濫用檢查（供 embedding facade 於每次呼叫時使用）。</summary>
+    /// <summary>建立綁定指定 Mod 的 decision service。modId 用於防濫用節流與遙測歸屬。</summary>
+    internal RimLLMDecisionClient CreateDecisionService(string modId)
+    {
+        if (string.IsNullOrEmpty(modId))
+        {
+            throw new ArgumentException("ModId cannot be empty or null", nameof(modId));
+        }
+        return new RimLLMDecisionClient(this, modId);
+    }
+
+    /// <summary>執行指定 Mod 的防濫用檢查（供 embedding / decision facade 於每次呼叫時使用）。</summary>
     internal void CheckAntiAbuseForMod(string modId)
     {
         if (_settings.EnableAntiAbuse)
@@ -393,4 +406,3 @@ public class RimLLMManager
         _usageTracker.ResetUsage();
     }
 }
-#pragma warning restore S101

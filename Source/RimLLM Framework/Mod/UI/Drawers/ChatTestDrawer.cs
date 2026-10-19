@@ -66,13 +66,11 @@ public static class ChatTestDrawer
         chatLoading = false;
         if (cts == null) return;
 
-#pragma warning disable S108, S2486 // reason: 取消/釋放已釋放的 CTS 在 Unity 主線程屬預期競爭，刻意忽略不影響主流程
         try { cts.Cancel(); }
         catch
         { // 刻意忽略：CTS 可能已取消或已釋放，不影響主流程
         }
         // CTS 由擁有它的背景請求在 finally 釋放，避免請求尚未啟動就取不到 Token。
-#pragma warning restore S108, S2486
     }
 
     private static void EnqueueChatUpdate(long requestGeneration, Action update)
@@ -227,7 +225,6 @@ public static class ChatTestDrawer
     /// <summary>
     /// 繪製對話測試介面。
     /// </summary>
-#pragma warning disable S3776 // reason: 單一線性敘事含多分支與遞迴，拆分反而增加重組成本
     public static void DrawChatTestSettings(Listing_Standard listing)
     {
         if (!chatReasoningInitialized)
@@ -341,7 +338,6 @@ public static class ChatTestDrawer
         Rect effortLabelRect = new Rect(effortRowRect.x, effortRowRect.y, effortLabelWidth + 5f, effortRowRect.height);
         Rect effortBtnRect = new Rect(effortRowRect.x + effortLabelWidth + 15f, effortRowRect.y, 160f, effortRowRect.height);
         using (RimLLMUIStyle.With(TextAnchor.MiddleLeft))
-#pragma warning disable S108, S1643, S2486, S8949 // reason: 批次抑制 MINOR/INFO 規則，語意保留，重構風險高於收益，維持現狀
         {
             Widgets.Label(effortLabelRect, "RimLLM_ReasoningEffortLabel".Translate());
         }
@@ -624,7 +620,6 @@ public static class ChatTestDrawer
             }
         }
     }
-#pragma warning restore S3776
 
     /// <summary>
     /// 測試模型選擇列。選單列出備援鏈上的 "Provider:Model" 條目，選中後以
@@ -1089,4 +1084,3 @@ public static class ChatTestDrawer
         return Regex.Replace(cleaned, @"＜(/?(?:b|i|size|color|material|quad)(?:=[^＞]*)?)＞", "<$1>", RegexOptions.IgnoreCase, timeout);
     }
 }
-#pragma warning restore S108, S1643, S2486, S8949

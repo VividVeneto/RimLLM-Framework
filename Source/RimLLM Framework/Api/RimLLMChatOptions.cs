@@ -3,7 +3,6 @@ using Microsoft.Extensions.AI;
 
 namespace RimLLM_Framework;
 
-#pragma warning disable S101, S2342 // reason: RimLLM 為品牌縮寫，公開 API 重命名會破壞下游 Mod，維持現狀
 /// <summary>
 /// RimLLM 框架專屬選項（繼承 MEAI ChatOptions）。
 /// 純 MEAI 使用者不需知道此型別；不設定時全部使用框架預設值。
@@ -136,4 +135,3 @@ public class RimLLMChatOptions : ChatOptions
         return !string.IsNullOrEmpty(GetCachedContext(options));
     }
 }
-#pragma warning restore S101, S2342

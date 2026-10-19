@@ -1,6 +1,5 @@
 namespace RimLLM_Framework.Manager;
 
-#pragma warning disable S101 // reason: RimLLM 為品牌縮寫，與其餘公開型別命名一致
 /// <summary>
 /// 單筆 embedding 的計算結果：向量本體、供應商回報的輸入 token 數，
 /// 以及實際算出這筆向量的供應商與模型。
@@ -38,4 +37,3 @@ public class RimLLMEmbeddingResult
         ProviderId = providerId;
     }
 }
-#pragma warning restore S101

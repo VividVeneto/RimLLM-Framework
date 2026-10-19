@@ -2,7 +2,6 @@ using System.Collections.Generic;
 
 namespace RimLLM_Framework.Manager;
 
-#pragma warning disable S101 // reason: RimLLM 為品牌縮寫，與其餘公開型別命名一致
 /// <summary>
 /// Embedding 供應商的模型清單抓取結果。
 ///
@@ -23,4 +22,3 @@ public class RimLLMEmbeddingModelList
         Filtered = filtered;
     }
 }
-#pragma warning restore S101

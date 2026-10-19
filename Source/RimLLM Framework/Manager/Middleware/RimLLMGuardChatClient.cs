@@ -7,7 +7,6 @@ using Microsoft.Extensions.AI;
 
 namespace RimLLM_Framework.Manager;
 
-#pragma warning disable S101 // reason: RimLLM 為品牌縮寫，維持現狀
 /// <summary>
 /// 前置守衛：防濫用節流在先、每日預算在後，通過才放行到下游。
 /// 排在佇列之前：被守衛擋下的請求不該佔用併發名額。
@@ -96,4 +95,3 @@ internal sealed class RimLLMGuardChatClient : DelegatingChatClient
         return last.Contents != null && last.Contents.Any(content => content is FunctionResultContent);
     }
 }
-#pragma warning restore S101

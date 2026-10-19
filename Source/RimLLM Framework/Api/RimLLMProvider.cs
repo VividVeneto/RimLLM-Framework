@@ -6,7 +6,6 @@ using RimLLM_Framework.Manager;
 
 namespace RimLLM_Framework;
 
-#pragma warning disable S101, S2342 // reason: RimLLM 為品牌縮寫，公開 API 重命名會破壞下游 Mod，維持現狀
 /// <summary>
 /// RimLLM SDK 全域靜態入口。第三方 Mod 以 CreateChatClient /
 /// CreateEmbeddingGenerator 取得標準 MEAI client 使用框架，無須事先註冊。
@@ -58,6 +57,15 @@ public static class RimLLMProvider
     public static IEmbeddingGenerator<string, Embedding<float>> CreateEmbeddingGenerator(string modId)
     {
         return Manager.CreateEmbeddingGenerator(modId);
+    }
+
+    /// <summary>
+    /// 建立決策服務 facade。modId 同 <see cref="CreateChatClient"/>，用於防濫用節流與遙測歸屬。
+    /// 決策呼叫與對話、embedding 共用每日 token 預算。
+    /// </summary>
+    public static RimLLMDecisionClient CreateDecisionService(string modId)
+    {
+        return Manager.CreateDecisionService(modId);
     }
 
     /// <summary>註冊外部 LLM 供應商的靜態便捷入口。</summary>
@@ -144,4 +152,3 @@ public static class RimLLMProvider
         return TryGetEffectiveCapabilities(null, out capabilities, out failureReason);
     }
 }
-#pragma warning restore S101, S2342

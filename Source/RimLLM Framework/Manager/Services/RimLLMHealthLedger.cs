@@ -15,7 +15,6 @@ namespace RimLLM_Framework.Manager;
 /// （例如三個 OpenRouter 模型），若以供應商為單位，其中一個模型出錯就會
 /// 把另外兩個健康的模型一起連坐冷卻。
 /// </remarks>
-#pragma warning disable S101 // reason: RimLLM 為品牌縮寫，維持現狀
 public class RimLLMHealthLedger
 {
     /// <summary>連續失敗達此門檻後改用指數退避熔斷。</summary>

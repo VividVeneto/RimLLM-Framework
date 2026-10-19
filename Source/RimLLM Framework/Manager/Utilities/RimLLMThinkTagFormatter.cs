@@ -3,7 +3,6 @@ using Microsoft.Extensions.AI;
 
 namespace RimLLM_Framework.Manager;
 
-#pragma warning disable S101 // reason: RimLLM 為品牌縮寫，維持現狀
 /// <summary>
 /// 把串流 update 攤成可顯示的文字，並用 <c>&lt;think&gt;</c> 標記包住推理段落。
 /// </summary>
@@ -65,4 +64,3 @@ internal sealed class RimLLMThinkTagFormatter
         return CloseTag;
     }
 }
-#pragma warning restore S101

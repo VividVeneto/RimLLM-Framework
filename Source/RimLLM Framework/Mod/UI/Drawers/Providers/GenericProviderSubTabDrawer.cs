@@ -16,7 +16,6 @@ public static class GenericProviderSubTabDrawer
 {
     private static RimLLMFrameworkSettings Settings => RimLLMFrameworkMod.Settings;
 
-#pragma warning disable S2386, S3887 // reason: UI 狀態跨實例共享，刻意使用可變靜態集合並於存取處受控，維持現狀
     public static readonly Dictionary<string, string> FetchStatus = [];
     public static readonly Dictionary<string, bool> Fetching = [];
     public static readonly Dictionary<string, string> TestStatus = [];
@@ -28,7 +27,6 @@ public static class GenericProviderSubTabDrawer
 
     /// <summary>哪幾把金鑰目前是明文顯示。鍵為 providerId + ":" + 索引；預設全部遮罩。</summary>
     public static readonly Dictionary<string, bool> RevealedKeys = [];
-#pragma warning restore S2386, S3887
 
     /// <summary>金鑰顯示切換鈕的寬度。</summary>
     private const float RevealButtonWidth = 40f;
@@ -40,7 +38,6 @@ public static class GenericProviderSubTabDrawer
     private static void ResetRevealedKeys(string providerId)
     {
         var stale = new List<string>();
-#pragma warning disable S3267 // reason: 需同時篩選並收集鍵，Where 改寫可讀性未提升，維持現狀
         foreach (var pair in RevealedKeys)
         {
             if (pair.Key.StartsWith(providerId + ":", StringComparison.Ordinal))
@@ -48,7 +45,6 @@ public static class GenericProviderSubTabDrawer
                 stale.Add(pair.Key);
             }
         }
-#pragma warning restore S3267
         foreach (string key in stale)
         {
             RevealedKeys.Remove(key);
@@ -105,7 +101,6 @@ public static class GenericProviderSubTabDrawer
         listing.GapLine(4f);
     }
 
-#pragma warning disable S3776 // reason: 單一線性敘事含多分支與遞迴，拆分反而增加重組成本
     private static void DrawApiKeyList(Listing_Standard listing, string providerId)
     {
         string rawApiKey = Settings.GetApiKey(providerId);
@@ -161,7 +156,6 @@ public static class GenericProviderSubTabDrawer
         string newRawKey = string.Join(",", keys);
         Settings.SetApiKey(providerId, newRawKey);
     }
-#pragma warning restore S3776
 
     private static void DrawChinaEndpointToggle(Listing_Standard listing, string providerId)
     {
@@ -343,7 +337,6 @@ public static class GenericProviderSubTabDrawer
         }
 
         using (RimLLMUIStyle.With(TextAnchor.MiddleLeft))
-#pragma warning disable S1066, S3267 // reason: 批次抑制 MINOR/INFO 規則，語意保留，重構風險高於收益，維持現狀
         {
             Widgets.Label(msgRect, statusText);
         }

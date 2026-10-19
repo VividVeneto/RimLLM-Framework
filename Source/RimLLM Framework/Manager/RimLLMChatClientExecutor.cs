@@ -9,7 +9,6 @@ using RimLLM_Framework.Core;
 
 namespace RimLLM_Framework.Manager;
 
-#pragma warning disable S101, S2342 // reason: RimLLM 為品牌縮寫，公開 API 重命名會破壞下游 Mod，維持現狀
 /// <summary>以逐候選的參數（模型、schema 方言、逾時）包裝一次 MEAI IChatClient 呼叫。</summary>
 internal static class RimLLMChatClientExecutor
 {
@@ -20,7 +19,6 @@ internal static class RimLLMChatClientExecutor
     /// <paramref name="customizeOptions"/> 為供應商專屬的 options 客製化（如 reasoning、Patch 逃生門）。
     /// <paramref name="onUsage"/> 為本次請求結算的 token 回呼，供請求日誌附帶顯示；可為 null。
     /// </summary>
-#pragma warning disable S107 // reason: 內部轉接器協調 IChatClient、逾時與逐候選參數，參數物件無重用價值且降低可讀性，維持窄範圍抑制
     public static async Task<ChatResponse> GenerateAsync(
         IChatClient client,
         IEnumerable<ChatMessage> messages,
@@ -80,12 +78,10 @@ internal static class RimLLMChatClientExecutor
         RecordUsage(providerId, model, builtMessages, response.Usage, EstimateTokensRaw(response.Text), onUsage);
         return response;
     }
-#pragma warning restore S107
 
     /// <summary>
     /// 串流請求：採「閒置逾時」語意 —— 每收到一個 chunk 就重設計時器。
     /// 對長回應而言整體逾時並不合理，因此 ApiTimeout 在此代表「多久沒有新內容就視為斷線」。
-#pragma warning disable S107, S3776 // reason: S107 內部轉接器協調 IChatClient、逾時與回呼，參數物件會使呼叫端可讀性下降且無重用，維持窄範圍抑制；S3776 單一線性敘事含多分支與遞迴，拆分反而增加重組成本
     /// </summary>
     public static async Task StreamAsync(
         IChatClient client,
@@ -192,7 +188,6 @@ internal static class RimLLMChatClientExecutor
         }
 
     }
-#pragma warning restore S107, S3776
 
     /// <summary>彙整 <see cref="ChatResponse"/> 內所有訊息的 content，與 <c>ChatResponse.Text</c> 的涵蓋範圍一致。</summary>
     private static IList<AIContent> CollectContents(ChatResponse response)
@@ -302,7 +297,6 @@ internal static class RimLLMChatClientExecutor
         {
             // schema 與 strict 取自同一次產生結果，避免兩者各算一次而分歧。
             RimLLMSchemaResult schema = RimLLMSchemaBuilder.Build(responseType);
-#pragma warning disable S3267 // reason: 迴圈遍歷在串流與用量統計具更高可讀性與效能，刻意保留 foreach
             // Element 由 schema 結果快取，不再每請求 JsonDocument.Parse 一次。
             options.ResponseFormat = ChatResponseFormat.ForJsonSchema(
                 schema.Element,
@@ -478,5 +472,3 @@ internal static class RimLLMChatClientExecutor
         return value.Value > int.MaxValue ? int.MaxValue : (int)value.Value;
     }
 }
-#pragma warning restore S101, S2342
-#pragma warning restore S3267

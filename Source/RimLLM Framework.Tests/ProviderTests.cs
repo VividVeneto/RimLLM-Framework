@@ -777,6 +777,11 @@ public class MockSettings : IRimLLMSettings, IDailyTokenBudget
     public string EmbeddingEndpoint { get; set; } = "";
     public string EmbeddingApiKey { get; set; } = "";
 
+    public string DecisionProvider { get; set; } = "Disabled";
+    public string DecisionModel { get; set; } = "";
+    public string DecisionEndpoint { get; set; } = "";
+    public string DecisionApiKey { get; set; } = "";
+
     public Dictionary<string, string> ApiKeys = [];
     public Dictionary<string, string> Endpoints = [];
     public Dictionary<string, bool> EnabledProviders = [];
@@ -1307,4 +1312,3 @@ public class TestDeepSeekPayloadProvider : DeepSeekProvider
         return new OpenAIChatClientAdapter(rawClient, this, model);
     }
 }
-#pragma warning restore S2701

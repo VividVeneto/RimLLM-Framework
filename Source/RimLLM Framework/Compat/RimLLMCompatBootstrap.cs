@@ -5,7 +5,6 @@ using Verse;
 
 namespace RimLLM_Framework.Compat;
 
-#pragma warning disable S101 // reason: RimLLM 為品牌縮寫，維持現狀
 /// <summary>
 /// 第三方相容層登錄表與啟動掛載點。
 /// </summary>
@@ -73,4 +72,3 @@ internal static class RimLLMCompatBootstrap
         }
     }
 }
-#pragma warning restore S101

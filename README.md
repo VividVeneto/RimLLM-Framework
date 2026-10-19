@@ -222,6 +222,22 @@ IEmbeddingGenerator<string, Embedding<float>> generator =
 
 The inputs of one `GenerateAsync` call go out as a single batch request (split into chunks of 100 for endpoints with smaller limits) rather than one HTTP round trip per string, and the reported input tokens are counted in the usage dashboard and the daily token budget exactly like chat calls.
 
+### Decision models
+
+When you need a typed answer instead of prose, the framework exposes a decision service backed by TypeSafe's System One protocol. A plan is built once and reused:
+
+```csharp
+var builder = new JevDecisionPlanBuilder();
+JevNoulHandle hostile = builder.AddNoul("hostile", "Is the speaker hostile?");
+JevDecisionPlan plan = builder.Build();
+
+RimLLMDecisionClient decisions = RimLLMProvider.CreateDecisionService("myai.mod");
+JevResult result = await decisions.EvaluateAsync(speakerText, plan);
+double hostileProbability = result.Get(hostile).Probability;
+```
+
+The decision provider defaults to **Disabled**. The settings page lists TypeSafe (Jev), Clef, Liquid d1, Solar Decide, Kev, Tev1, Laya, Span, Microsoft Decision-1 and OpenAI Decisions. Model, endpoint and key are stored per provider, every key uses the same AES encryption as chat keys, the page can fetch the provider's model list, and the connection test sends a real one-question decision. Endpoints are origins: the client appends `/v1/systemone`, so any System One-compatible gateway works. Decision calls share the caller record, anti-abuse throttle and daily token budget with chat and embeddings, and their failures follow the same error contract as everything else on this page: `RimLLMException` with an `LLMError` code (a 401 surfaces as `InvalidKey`, 429 as `RateLimit`, 5xx as `ProviderOffline`, SDK timeouts as `Timeout`, connection failures as `NetworkError`), while caller cancellation stays `OperationCanceledException`. A disabled provider or a missing key is refused with an `RimLLMException` before anything is sent. The service has no built-in policy or routing — the caller owns the plan and decides what a probability means.
+
 ### Error handling
 
 Every failure surfaces as `RimLLMException`, with a provider-independent `LLMError` code:
@@ -309,9 +325,10 @@ Everything else — `IChatClient`, `ChatMessage`, `ChatResponse`, `ChatResponseU
 8. **Reasoning models** — chain of thought delivered as MEAI `TextReasoningContent`; reasoning effort control on every provider.
 9. **Prompt caching** — `CachedContext` for server-side caching, with cache-hit savings shown in the usage stats.
 10. **Embedding SDK** — a standard `IEmbeddingGenerator` backed by Gemini, OpenAI, Ollama or an OpenAI-compatible endpoint, sharing the daily budget guard with chat.
-11. **Native tool calling** — MEAI `AIFunction` on every provider, with main-thread execution and cancellation before dispatch.
-12. **Third-party integration** — route RimTalk, Auto Translation, Mod Compatibility Checker and Simplified Chinese Automation: One through RimLLM.
-13. **Mods using RimLLM** — a settings tab listing the mods that depend on or have called RimLLM this session.
+11. **Decision models** — TypeSafe Jev and nine other System One-compatible providers, with per-provider model/endpoint/key settings, encrypted keys, model discovery and a real decision test.
+12. **Native tool calling** — MEAI `AIFunction` on every provider, with main-thread execution and cancellation before dispatch.
+13. **Third-party integration** — route RimTalk, Auto Translation, Mod Compatibility Checker and Simplified Chinese Automation: One through RimLLM.
+14. **Mods using RimLLM** — a settings tab listing the mods that depend on or have called RimLLM this session.
 
 Each item's detailed behavior, and the reasons behind it: **[Documentation/FEATURES.md](Documentation/FEATURES.md)**.
 

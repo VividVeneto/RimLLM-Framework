@@ -3,11 +3,9 @@ using RimLLM_Framework.Core;
 using RimLLM_Framework.Manager;
 using UnityEngine;
 using Verse;
-#pragma warning disable S108, S2486 // reason: 批次抑制 MINOR/INFO 規則，語意保留，重構風險高於收益，維持現狀
 
 namespace RimLLM_Framework.Mod;
 
-#pragma warning disable S101, S2342 // reason: RimLLM 為品牌縮寫，公開 API 重命名會破壞下游 Mod，維持現狀
 /// <summary>
 /// RimLLM Framework Mod 本體進入點。
 /// 初始化 SDK、掛載 Dispatcher 並委託設定 GUI 的渲染。
@@ -74,5 +72,3 @@ public class RimLLMFrameworkMod : Verse.Mod
         RimLLMSettingsUI.DoSettingsWindowContents(inRect);
     }
 }
-#pragma warning restore S101, S2342
-#pragma warning restore S108, S2486

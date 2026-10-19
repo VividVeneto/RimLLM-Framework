@@ -1,12 +1,12 @@
 using System;
 using System.Collections.Generic;
+using RimLLM_Framework.Manager.Services;
 using RimWorld;
 using UnityEngine;
 using Verse;
 
 namespace RimLLM_Framework.Mod;
 
-#pragma warning disable S101, S2342 // reason: RimLLM 為品牌縮寫，公開 API 重命名會破壞下游 Mod，維持現狀
 /// <summary>
 /// 負責 RimLLM Framework 的設定畫面進入點與框架布局。
 /// 將具體的分頁渲染與交互狀態委託給各個 Drawer 類別。
@@ -18,6 +18,7 @@ public static class RimLLMSettingsUI
     // 全域選單狀態
     private static string activeMainCategory = ProvidersCategoryId;
     private static Vector2 _detailScrollPosition = Vector2.zero;
+    private static Vector2 _leftScrollPosition = Vector2.zero;
 
     /// <summary>RimWorld 捲軸的固定寬度。</summary>
     private const float ScrollBarWidth = 16f;
@@ -34,6 +35,10 @@ public static class RimLLMSettingsUI
     public static void Initialize(RimLLMFrameworkSettings settings)
     {
         ChatTestDrawer.Initialize(settings);
+        if (RimLLMDecisionProviderCatalog.TryGet(settings.DecisionProvider, out RimLLMDecisionProvider activeDecisionProvider))
+        {
+            DecisionSettingsDrawer.ActiveDecisionSubTab = activeDecisionProvider.Id;
+        }
     }
 
     /// <summary>
@@ -93,6 +98,16 @@ public static class RimLLMSettingsUI
             Widgets.DrawMenuSection(rightColRect);
             DrawRightDetailContent(rightColRect);
         }
+        else if (activeMainCategory == "Decision")
+        {
+            Rect midColRect = new Rect(leftColRect.xMax + gap, inRect.y, midWidth, height);
+            Widgets.DrawMenuSection(midColRect);
+            DecisionSettingsDrawer.DrawMiddleDecisionMenu(midColRect);
+
+            Rect rightColRect = new Rect(midColRect.xMax + gap, inRect.y, inRect.width - leftWidth - midWidth - gap * 2f, height);
+            Widgets.DrawMenuSection(rightColRect);
+            DrawRightDetailContent(rightColRect);
+        }
         else
         {
             Rect rightColRect = new Rect(leftColRect.xMax + gap, inRect.y, inRect.width - leftWidth - gap, height);
@@ -104,18 +119,29 @@ public static class RimLLMSettingsUI
     private static void DrawLeftCategoryMenu(Rect rect)
     {
         Rect contentRect = rect.ContractedBy(6f);
-        Listing_Standard listing = new Listing_Standard();
-        listing.Begin(contentRect);
+        Rect titleRect = new Rect(contentRect.x, contentRect.y, contentRect.width, 20f);
         Text.Font = GameFont.Small;
-        listing.Label("RimLLM_MainMenu".Translate());
-        listing.Gap(6f);
+        Widgets.Label(titleRect, "RimLLM_MainMenu".Translate());
 
+        // 視窗被玩家縮短時，決策模型等較下方的分頁仍要能捲到。
+        Rect listRect = new Rect(
+            contentRect.x,
+            titleRect.yMax + 6f,
+            contentRect.width,
+            contentRect.height - 26f);
+        float viewHeight = Pages.Length * (32f + 4f);
+        Rect viewRect = new Rect(0f, 0f, listRect.width - ScrollBarWidth, viewHeight);
+
+        Widgets.BeginScrollView(listRect, ref _leftScrollPosition, viewRect);
+        Listing_Standard listing = new Listing_Standard();
+        listing.Begin(viewRect);
         for (int i = 0; i < Pages.Length; i++)
         {
             if (i > 0) listing.Gap(4f);
             DrawCategoryButton(listing, Pages[i].MenuLabelKey.Translate(), Pages[i].Id);
         }
         listing.End();
+        Widgets.EndScrollView();
     }
 
     private static void DrawCategoryButton(Listing_Standard listing, string label, string categoryId)
@@ -131,7 +157,6 @@ public static class RimLLMSettingsUI
 
         string text = activeMainCategory == categoryId ? $"<color=white><b>{label}</b></color>" : $"<color=silver>{label}</color>";
         using (RimLLMUIStyle.With(TextAnchor.MiddleCenter))
-#pragma warning disable S1192 // reason: 批次抑制 MINOR/INFO 規則，語意保留，重構風險高於收益，維持現狀
         {
             Widgets.Label(btnRect, text);
         }
@@ -192,6 +217,8 @@ public static class RimLLMSettingsUI
             return ProvidersCategoryId + "/" + ProviderSettingsDrawer.ActiveProviderSubTab;
         if (activeMainCategory == "Embedding")
             return "Embedding/" + EmbeddingSettingsDrawer.ActiveEmbeddingSubTab;
+        if (activeMainCategory == "Decision")
+            return "Decision/" + DecisionSettingsDrawer.ActiveDecisionSubTab;
         return activeMainCategory;
     }
 
@@ -266,6 +293,18 @@ public static class RimLLMSettingsUI
             EstimateHeight = EmbeddingSettingsDrawer.GetHeight
         },
         new() {
+            Id = "Decision",
+            MenuLabelKey = "RimLLM_TabDecision",
+            Title = () =>
+            {
+                string tabName = DecisionSettingsDrawer.GetProviderDisplayName(
+                    DecisionSettingsDrawer.ActiveDecisionSubTab);
+                return "RimLLM_TitleDecisionSettings".Translate(tabName);
+            },
+            Draw = DecisionSettingsDrawer.DrawRightDetailContent,
+            EstimateHeight = DecisionSettingsDrawer.GetHeight
+        },
+        new() {
             Id = "Budget",
             MenuLabelKey = "RimLLM_TabBudget",
             Title = () => "RimLLM_TitleBudget".Translate(),
@@ -311,5 +350,3 @@ public static class RimLLMSettingsUI
         return null;
     }
 }
-#pragma warning restore S101, S2342
-#pragma warning restore S1192

@@ -2,7 +2,6 @@ using System;
 
 namespace RimLLM_Framework;
 
-#pragma warning disable S101, S2342 // reason: RimLLM 為品牌縮寫，公開 API 重命名會破壞下游 Mod，維持現狀
 /// <summary>
 /// RimLLM SDK 拋出的專屬例外。
 /// 包含統一錯誤碼，利於呼叫端 Mod 進行錯誤處理與 Fallback。
@@ -56,4 +55,3 @@ public class RimLLMException : Exception
         Error = error;
     }
 }
-#pragma warning restore S101, S2342

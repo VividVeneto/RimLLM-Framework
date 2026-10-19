@@ -9,11 +9,9 @@ using System.Text.Json.Nodes;
 using System.Text.Json.Schema;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
-#pragma warning disable S1168, S1192, S3267, S3878 // reason: S1168 null 表示不可表達節點/未找到，與空集合語意不同，呼叫端需區分；其餘批次抑制語意保留，維持現狀
 
 namespace RimLLM_Framework.Manager;
 
-#pragma warning disable S101, S2342 // reason: RimLLM 為品牌縮寫，公開 API 重命名會破壞下游 Mod，維持現狀
 /// <summary>
 /// 一次 schema 產生的完整結果。不可變，因此可直接由快取共用而不需複製。
 /// </summary>
@@ -201,14 +199,13 @@ public static class RimLLMSchemaBuilder
     /// <c>required</c> 移除」—— 與舊實作把循環成員截斷為 null 的行為一致。
     /// </summary>
     /// <param name="node">exporter 原始輸出中的節點。</param>
-#pragma warning disable S3776 // reason: 單一線性敘事含多分支與遞迴，拆分反而增加重組成本
     /// <param name="typeInfo">該節點對應的 CLR 型別資訊，可能為 null（此時退化成純 JSON 正規化）。</param>
     [SuppressMessage("csharpsquid", "S1168", Justification = "null 表示不可表達節點，與空集合語意不同，呼叫端需區分")]
     private static JsonObject Normalize(JsonObject node, JsonTypeInfo typeInfo, NormalizeContext context, int depth)
     {
         if (node == null || depth > context.MaxDepth)
         {
-            return null; // NOSONAR
+            return null;
         }
 
         // exporter 的 $ref 是指向樹內既有節點的 JSON pointer，而且不只用於循環，也用於去重。
@@ -220,13 +217,13 @@ public static class RimLLMSchemaBuilder
             string pointer = refToken.GetValue<string>();
             if (context.PointerPath.Contains(pointer))
             {
-                return null; // NOSONAR
+                return null;
             }
 
             JsonObject target = ResolvePointer(context.RawRoot, pointer);
             if (target == null)
             {
-                return null; // NOSONAR
+                return null;
             }
 
             context.PointerPath.Add(pointer);
@@ -243,13 +240,13 @@ public static class RimLLMSchemaBuilder
         JsonObject collapsed = CollapseCompositeKeywords(node);
         if (collapsed == null)
         {
-            return null; // NOSONAR
+            return null;
         }
 
         string typeName = ExtractTypeName(collapsed);
         if (typeName == null)
         {
-            return null; // NOSONAR
+            return null;
         }
 
         var result = new JsonObject
@@ -278,7 +275,7 @@ public static class RimLLMSchemaBuilder
                 depth + 1);
 
             // 陣列的元素無法表達時，整個陣列成員一併捨棄（與舊實作一致）。
-            if (itemSchema == null) return null; // NOSONAR
+            if (itemSchema == null) return null;
             result["items"] = itemSchema;
             return result;
         }
@@ -295,8 +292,6 @@ public static class RimLLMSchemaBuilder
 
         return result;
     }
-#pragma warning restore S3776
-#pragma warning disable S3776 // reason: 單一線性敘事含多分支與遞迴，拆分反而增加重組成本
 
     private static JsonObject NormalizeObject(
         JsonObject node, JsonObject result, JsonTypeInfo typeInfo, NormalizeContext context, int depth)
@@ -326,7 +321,7 @@ public static class RimLLMSchemaBuilder
         Type clrType = typeInfo != null ? typeInfo.Type : null;
         if (clrType != null)
         {
-            if (context.TypePath.Contains(clrType)) return null; // NOSONAR
+            if (context.TypePath.Contains(clrType)) return null;
             context.TypePath.Add(clrType);
         }
 
@@ -373,7 +368,6 @@ public static class RimLLMSchemaBuilder
             }
         }
     }
-#pragma warning restore S3776
 
     /// <summary>
     /// 把成員上的 <see cref="DescriptionAttribute"/> 寫進 schema。
@@ -433,16 +427,16 @@ public static class RimLLMSchemaBuilder
         JsonObject candidate = null;
         foreach (JsonNode branch in composite)
         {
-            if (branch is not JsonObject branchObject) return null; // NOSONAR
+            if (branch is not JsonObject branchObject) return null;
 
             // "或 null" 的那一支不帶資訊，略過。
             if (IsNullOnlySchema(branchObject)) continue;
 
-            if (candidate != null) return null; // NOSONAR
+            if (candidate != null) return null;
             candidate = branchObject;
         }
 
-        if (candidate == null) return null; // NOSONAR
+        if (candidate == null) return null;
 
         // 外層若帶了 description 之類的兄弟關鍵字，合併進被選中的分支。
         var merged = (JsonObject)candidate.DeepClone();
@@ -483,7 +477,7 @@ public static class RimLLMSchemaBuilder
             return single == "null" ? null : single;
         }
 
-        if (typeToken is not JsonArray candidates) return null; // NOSONAR
+        if (typeToken is not JsonArray candidates) return null;
 
         foreach (JsonNode candidate in candidates)
         {
@@ -492,7 +486,7 @@ public static class RimLLMSchemaBuilder
             if (name != "null") return name;
         }
 
-        return null; // NOSONAR
+        return null;
     }
 
     /// <summary>
@@ -501,7 +495,7 @@ public static class RimLLMSchemaBuilder
     /// </summary>
     private static string InferTypeFromEnum(JsonArray enumValues)
     {
-        if (enumValues == null || enumValues.Count == 0) return null; // NOSONAR
+        if (enumValues == null || enumValues.Count == 0) return null;
 
         foreach (JsonNode value in enumValues)
         {
@@ -509,7 +503,7 @@ public static class RimLLMSchemaBuilder
             if (value.GetValueKind() == JsonValueKind.Number) return "integer";
         }
 
-        return null; // NOSONAR
+        return null;
     }
 
     /// <summary>
@@ -518,19 +512,19 @@ public static class RimLLMSchemaBuilder
     /// </summary>
     private static JsonObject ResolvePointer(JsonObject rawRoot, string pointer)
     {
-        if (string.IsNullOrEmpty(pointer)) return null; // NOSONAR
+        if (string.IsNullOrEmpty(pointer)) return null;
         if (pointer == "#") return rawRoot;
-        if (!pointer.StartsWith("#/", StringComparison.Ordinal)) return null; // NOSONAR
+        if (!pointer.StartsWith("#/", StringComparison.Ordinal)) return null;
 
         JsonNode current = rawRoot;
         foreach (string rawSegment in pointer.Substring(2).Split('/'))
         {
-            if (current is not JsonObject container) return null; // NOSONAR
+            if (current is not JsonObject container) return null;
 
             // RFC 6901 的轉義：~1 代表 '/'，~0 代表 '~'。順序不可顛倒。
             string segment = rawSegment.Replace("~1", "/").Replace("~0", "~");
             current = container[segment];
-            if (current == null) return null; // NOSONAR
+            if (current == null) return null;
         }
 
         return current as JsonObject;
@@ -546,7 +540,6 @@ public static class RimLLMSchemaBuilder
         ApplyOpenAiDialectRecursive(canonical);
         return canonical;
     }
-#pragma warning disable S3776 // reason: 單一線性敘事含多分支與遞迴，拆分反而增加重組成本
 
     private static void ApplyOpenAiDialectRecursive(JsonObject node)
     {
@@ -599,7 +592,6 @@ public static class RimLLMSchemaBuilder
             }
         }
     }
-#pragma warning restore S3776
 
     private static bool ContainsTypeName(JsonArray values, string name)
     {
@@ -691,7 +683,6 @@ public static class RimLLMSchemaBuilder
     ///
     /// 已知殘餘風險：自訂 <c>[JsonConverter]</c> 會改變 wire 形狀，
     /// 而 exporter 完全看不到它。結構化輸出的型別請勿使用自訂 converter。
-#pragma warning disable S3776 // reason: 單一線性敘事含多分支與遞迴，拆分反而增加重組成本
     /// </summary>
     private static void ApplySerializationContract(JsonTypeInfo typeInfo)
     {
@@ -724,11 +715,10 @@ public static class RimLLMSchemaBuilder
             }
         }
     }
-#pragma warning restore S3776
 
     private static JsonTypeInfo GetTypeInfo(Type type)
     {
-        if (type == null) return null; // NOSONAR
+        if (type == null) return null;
 
         try
         {
@@ -737,7 +727,7 @@ public static class RimLLMSchemaBuilder
         catch
         {
             // 拿不到型別資訊只會讓該子樹退化成純 JSON 正規化，不該讓整份 schema 失敗。
-            return null; // NOSONAR
+            return null;
         }
     }
 
@@ -752,5 +742,3 @@ public static class RimLLMSchemaBuilder
         };
     }
 }
-#pragma warning restore S101, S2342
-#pragma warning restore S1168, S1192, S3267, S3878

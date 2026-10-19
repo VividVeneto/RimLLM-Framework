@@ -5,7 +5,6 @@ using Verse;
 
 namespace RimLLM_Framework.Mod;
 
-#pragma warning disable S101, S2342 // reason: RimLLM 為品牌縮寫，公開 API 重命名會破壞下游 Mod，維持現狀
 /// <summary>
 /// 自訂模型選擇視窗，支援關鍵字過濾搜尋與滾動列表，以解決模型選項過多導致 UI 混亂的問題。
 /// </summary>
@@ -160,4 +159,3 @@ public class Dialog_SelectModel : Window
         }
     }
 }
-#pragma warning restore S101, S2342

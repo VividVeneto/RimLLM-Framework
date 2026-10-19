@@ -16,9 +16,7 @@ namespace RimLLM_Framework.Manager;
 /// </summary>
 internal static class ModelsDevCatalog
 {
-#pragma warning disable S1075 // Canonical public endpoint for models.dev catalog
     private const string ApiUrl = "https://models.dev/api.json";
-#pragma warning restore S1075
 
     /// <summary>
     /// 框架供應商 → models.dev 供應商鍵。OpenRouter 的 API 本身就回報全部模型的上限，不需要另外下載；

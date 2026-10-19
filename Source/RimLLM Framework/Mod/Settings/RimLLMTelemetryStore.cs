@@ -4,11 +4,9 @@ using System.IO;
 using RimLLM_Framework.Core;
 using RimLLM_Framework.Manager;
 using Verse;
-#pragma warning disable S108, S2223, S2486, S3260 // reason: 批次抑制 MINOR/INFO 規則，語意保留，重構風險高於收益，維持現狀
 
 namespace RimLLM_Framework.Mod;
 
-#pragma warning disable S101, S2342 // reason: RimLLM 為品牌縮寫，公開 API 重命名會破壞下游 Mod，維持現狀
 /// <summary>
 /// 遙測資料儲存（對話測試歷史、請求日誌、Token 用量統計）。
 /// 與 ModSettings 設定本體分離，獨立存放於 Config 資料夾的 JSON 檔案，
@@ -308,5 +306,3 @@ public class RimLLMTelemetryStore
         }
     }
 }
-#pragma warning restore S101, S2342
-#pragma warning restore S108, S2223, S2486, S3260

@@ -10,7 +10,6 @@ namespace RimLLM_Framework.Providers;
 /// 為 ILLMProvider 提供便利的非同步擴充方法。
 /// 所有文字生成與串流皆以底層的 CreateChatClient 為核心。
 /// </summary>
-#pragma warning disable S101 // reason: LLM 為品牌縮寫，維持現狀
 public static class LLMProviderExtensions
 {
     /// <summary>
@@ -64,7 +63,6 @@ public static class LLMProviderExtensions
     {
         if (provider == null) throw new ArgumentNullException(nameof(provider));
         using IChatClient client = provider.CreateChatClient(model);
-#pragma warning disable S3267 // reason: IAsyncEnumerable 串流更新過濾，維持現狀
         await foreach (ChatResponseUpdate update in client.GetStreamingResponseAsync(messages, options))
         {
             if (!string.IsNullOrEmpty(update?.Text))
@@ -72,6 +70,5 @@ public static class LLMProviderExtensions
                 onChunkReceived?.Invoke(update.Text);
             }
         }
-#pragma warning restore S3267
     }
 }

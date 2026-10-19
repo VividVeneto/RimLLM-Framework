@@ -7,9 +7,7 @@ namespace RimLLM_Framework.Mod;
 /// <summary>
 /// 手動填寫模型上下文上限（token 數）的小視窗。填 0 代表清除手動值、改用 API 回報的值。
 /// </summary>
-#pragma warning disable S101 // Follows RimWorld core engine naming convention (Dialog_*) for Window subclasses
 public class Dialog_SetContextWindow : Window
-#pragma warning restore S101
 {
     private const int MaxTokens = 100000000;
 

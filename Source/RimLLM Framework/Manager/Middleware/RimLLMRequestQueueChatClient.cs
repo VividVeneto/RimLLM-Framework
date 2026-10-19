@@ -8,7 +8,6 @@ using Microsoft.Extensions.AI;
 
 namespace RimLLM_Framework.Manager;
 
-#pragma warning disable S101 // reason: RimLLM 為品牌縮寫，維持現狀
 /// <summary>
 /// 優先權佇列與並行限流。高 Priority 的請求先取得名額，同優先級則先到先得。
 /// </summary>
@@ -68,4 +67,3 @@ internal sealed class RimLLMRequestQueueChatClient : DelegatingChatClient
         }
     }
 }
-#pragma warning restore S101

@@ -7,8 +7,6 @@ using RimLLM_Framework.Manager;
 
 namespace RimLLM_Framework;
 
-#pragma warning disable S101, S2342 // reason: RimLLM 為品牌縮寫，公開 API 重命名會破壞下游 Mod，維持現狀
-#pragma warning disable S3881 // reason: IEmbeddingGenerator 門面，Dispose 僅標記已釋放無實質資源，現有模式已足夠
 /// <summary>
 /// 綁定單一 Mod 的 IEmbeddingGenerator facade。內部接到既有 RimLLMEmbeddingService
 /// （線上供應商 + 防濫用）。透過 RimLLMProvider.CreateEmbeddingGenerator(modId) 取得。
@@ -100,5 +98,3 @@ internal class RimLLMEmbeddingClient : IEmbeddingGenerator<string, Embedding<flo
     {
     }
 }
-#pragma warning restore S3881
-#pragma warning restore S101, S2342

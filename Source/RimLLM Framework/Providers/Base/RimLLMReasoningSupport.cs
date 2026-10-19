@@ -2,7 +2,6 @@ using System.Collections.Generic;
 
 namespace RimLLM_Framework.Providers;
 
-#pragma warning disable S101, S2342 // reason: RimLLM 為品牌縮寫，公開 API 重命名會破壞下游 Mod，維持現狀
 /// <summary>
 /// 思考參數的線上格式（方言）。各家表達「思考強度」的欄位完全不同，
 /// 而且同一家不同世代的模型也可能不一樣（例如 Kimi K3 用 reasoning_effort、K2.x 用 thinking.type），
@@ -112,4 +111,3 @@ public static class RimLLMReasoningSupport
         }
     }
 }
-#pragma warning restore S101, S2342

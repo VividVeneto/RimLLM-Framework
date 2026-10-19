@@ -4,7 +4,6 @@ using System.Net.Http.Headers;
 
 namespace RimLLM_Framework;
 
-#pragma warning disable S101, S2342 // reason: RimLLM 為品牌縮寫，公開 API 重命名會破壞下游 Mod，維持現狀
 /// <summary>
 /// HTTP 狀態碼 → <see cref="LLMError"/> 的單一對照來源。
 /// 官方 SDK 路徑（ClientResultException）、raw HTTP 路徑與 embedding 路徑共用同一份語意，
@@ -227,4 +226,3 @@ public static class LLMErrorMapper
         return exception;
     }
 }
-#pragma warning restore S101, S2342

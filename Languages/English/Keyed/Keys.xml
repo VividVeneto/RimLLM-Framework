@@ -252,4 +252,34 @@
   <RimLLM_ConsumersCalled>Sent requests through RimLLM this session (modId: {0})</RimLLM_ConsumersCalled>
   <RimLLM_ConsumersNotCalled>Has not sent any request through RimLLM this session</RimLLM_ConsumersNotCalled>
   <RimLLM_ConsumersUnresolved>This modId does not match any active mod's packageId</RimLLM_ConsumersUnresolved>
+  <RimLLM_TabDecision>Decision</RimLLM_TabDecision>
+  <RimLLM_TitleDecisionSettings>Decision Model Settings - {0}</RimLLM_TitleDecisionSettings>
+  <RimLLM_DecisionProvidersTitle>Decision Providers</RimLLM_DecisionProvidersTitle>
+  <RimLLM_EnableDecisionProvider>Enable this decision provider</RimLLM_EnableDecisionProvider>
+  <RimLLM_DecisionActiveBadge>&lt;color=#4ade80&gt;&lt;b&gt;(Active Decision Service)&lt;/b&gt;&lt;/color&gt;</RimLLM_DecisionActiveBadge>
+  <RimLLM_DecisionExplanation>Decision models answer typed questions (yes/no, choice, score) instead of writing text. Other mods can call this service through the RimLLM SDK. If no provider is enabled, no decisions will be made.</RimLLM_DecisionExplanation>
+  <RimLLM_DecisionKeyHint>API Key (required by the selected provider): </RimLLM_DecisionKeyHint>
+  <RimLLM_DecisionNoKeyWarning>&lt;color=#facc15&gt;No API key configured for this provider.&lt;/color&gt;</RimLLM_DecisionNoKeyWarning>
+  <RimLLM_DecisionEndpointLabel>Custom Endpoint URL (origin only): </RimLLM_DecisionEndpointLabel>
+  <RimLLM_DecisionModelLabel>Decision Model Name: </RimLLM_DecisionModelLabel>
+  <RimLLM_DecisionNoModelList>&lt;color=grey&gt;No model list fetched yet. Fetch one below, or type the model name above.&lt;/color&gt;</RimLLM_DecisionNoModelList>
+  <RimLLM_DecisionPresetModelsHint>(Showing known preset models; you can also fetch the full list from the server below)</RimLLM_DecisionPresetModelsHint>
+  <RimLLM_DecisionFetchedModelsHint>Model list synchronized from server</RimLLM_DecisionFetchedModelsHint>
+  <RimLLM_DecisionSetAsModel>Set as Decision Model</RimLLM_DecisionSetAsModel>
+  <RimLLM_DecisionTestBtn>Test Connection</RimLLM_DecisionTestBtn>
+  <RimLLM_DecisionTesting>Testing...</RimLLM_DecisionTesting>
+  <RimLLM_DecisionTestSuccess>Connection OK (a test decision succeeded)</RimLLM_DecisionTestSuccess>
+  <RimLLM_DecisionTestFailed>Failed (Error: {0})</RimLLM_DecisionTestFailed>
+  <RimLLM_DecisionStatusActiveDetail>Active | {0}</RimLLM_DecisionStatusActiveDetail>
+  <RimLLM_DecisionStatusInactive>Inactive</RimLLM_DecisionStatusInactive>
+  <RimLLM_DecisionProvider_TypeSafe>TypeSafe (Jev)</RimLLM_DecisionProvider_TypeSafe>
+  <RimLLM_DecisionProvider_Clef>Cloudflare (Clef)</RimLLM_DecisionProvider_Clef>
+  <RimLLM_DecisionProvider_Liquid>Liquid (d1)</RimLLM_DecisionProvider_Liquid>
+  <RimLLM_DecisionProvider_Solar>Upstage (Solar Decide)</RimLLM_DecisionProvider_Solar>
+  <RimLLM_DecisionProvider_Kev>Jared Palmer (Kev 4B)</RimLLM_DecisionProvider_Kev>
+  <RimLLM_DecisionProvider_Tev>Together (Tev1 4B)</RimLLM_DecisionProvider_Tev>
+  <RimLLM_DecisionProvider_Laya>Laya</RimLLM_DecisionProvider_Laya>
+  <RimLLM_DecisionProvider_Span>Respan (Span-01)</RimLLM_DecisionProvider_Span>
+  <RimLLM_DecisionProvider_Microsoft>Microsoft (Decision-1)</RimLLM_DecisionProvider_Microsoft>
+  <RimLLM_DecisionProvider_OpenAI>OpenAI Decisions</RimLLM_DecisionProvider_OpenAI>
 </LanguageData>

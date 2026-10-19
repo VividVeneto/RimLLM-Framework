@@ -9,7 +9,6 @@ using RimLLM_Framework.Providers;
 
 namespace RimLLM_Framework.Manager;
 
-#pragma warning disable S101 // reason: RimLLM 為品牌縮寫，維持現狀
 /// <summary>
 /// 單一「供應商 + 模型」候選的 MEAI 門面。由 <see cref="RimLLMFailoverChatClient"/>
 /// 每次選擇候選時建立。
@@ -424,4 +423,3 @@ internal sealed class RimLLMProviderChatClient : IChatClient
                _settings.EnableNativeSchema;
     }
 }
-#pragma warning restore S101

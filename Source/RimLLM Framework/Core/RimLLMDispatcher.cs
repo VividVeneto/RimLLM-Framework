@@ -10,7 +10,6 @@ namespace RimLLM_Framework.Core;
 /// Unity 主線程派遣器 (Main Thread Dispatcher)。
 /// 確保所有在背景線程（如 API 請求完成）的 Callback 能夠安全地回到 Unity 主線程執行，防止 TPS 劇烈震盪與 Unity API 非線程安全崩潰。
 /// </summary>
-#pragma warning disable S101 // reason: RimLLM 為品牌縮寫，公開 API 重命名會破壞下游 Mod，維持現狀
 public class RimLLMDispatcher : MonoBehaviour
 {
     /// <summary>佇列長度上限。超過後丟棄最舊的項目，避免高 chunk 率時無限成長。</summary>
@@ -300,12 +299,10 @@ public class RimLLMDispatcher : MonoBehaviour
     /// </summary>
     internal static void ResetQueueForTests()
     {
-#pragma warning disable S108 // reason: 測試用清空佇列，空區塊為設計意圖，僅需出列副作用
         while (ExecutionQueue.TryDequeue(out _))
         {
             // 刻意清空佇列，僅需出列副作用，無需額外處理。
         }
-#pragma warning restore S108
         Interlocked.Exchange(ref _queuedCount, 0);
         Interlocked.Exchange(ref _droppedCount, 0);
     }
@@ -315,8 +312,6 @@ public class RimLLMDispatcher : MonoBehaviour
     /// <summary>主線程 pump 是否運作中（遊戲內整合測試用）。</summary>
     internal static bool HasPump => _hasPump;
 
-#pragma warning disable S2325 // reason: Unity Message 必須為實例方法，無法 static
-#pragma warning disable S2696 // reason: Unity 單例在實例生命週期中設定靜態實例
     private void Awake()
     {
         _hasPump = true;
@@ -344,7 +339,4 @@ public class RimLLMDispatcher : MonoBehaviour
             _instance = null;
         }
     }
-#pragma warning restore S2696
-#pragma warning restore S2325
 }
-#pragma warning restore S101

@@ -5,7 +5,6 @@ using Verse;
 
 namespace RimLLM_Framework.Mod;
 
-#pragma warning disable S101, S2342 // reason: RimLLM 為品牌縮寫，公開 API 重命名會破壞下游 Mod，維持現狀
 /// <summary>
 /// 設定介面共用的樣式常數與繪製輔助。
 ///
@@ -366,4 +365,3 @@ public static class RimLLMUIStyle
         return changed && (Event.current == null || Event.current.type == EventType.MouseUp || Event.current.rawType == EventType.MouseUp);
     }
 }
-#pragma warning restore S101, S2342

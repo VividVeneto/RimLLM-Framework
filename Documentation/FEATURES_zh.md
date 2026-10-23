@@ -40,9 +40,9 @@
 6. **一鍵連線測試**
    * 即時連線檢查，量測延遲並驗證 API 金鑰與模型。在基底類別實作一次，所有供應商共用。
    * 連線測試與初始模型清單請求均使用設定的 API 逾時，包含原本會沿用 SDK 預設逾時的呼叫。
-7. **執行緒安全與主執行緒 Scribe 派送**
+7. **執行緒安全與主執行緒 UI 派送**
    * 所有設定字典皆以鎖保護，防止多執行緒並發讀寫。
-   * `RecordLog` 的記憶體內日誌更新仍透過 `RimLLMDispatcher` 在 Unity 主執行緒執行，遙測寫檔（AES 加密＋JSON 序列化＋磁碟寫入）則由背景單寫者執行，並套用 15 秒寫入節流，避免背景存檔造成崩潰或 TPS 掉幀。
+   * `RecordLog` 會在記帳器鎖內更新請求日誌快照並標記遙測待存，再由背景單寫者以 15 秒節流寫入。即使 Unity 回呼佇列繁忙，關閉時的 flush 仍能保存最新快照。
 8. **推理模型**
    * 思維鏈以 MEAI 的 `TextReasoningContent` 放在 `ChatResponse.Messages`／`ChatResponseUpdate.Contents` 裡交付，刻意**不**併入 `ChatResponse.Text`，因此結構化輸出與 JSON 解析不會讀到它。要保留或丟棄，依內容型別過濾即可。
    * **思考強度**：自動（沿用供應商預設）、關閉，或低／中／高。各供應商會轉成自己的格式（`reasoning_effort`、OpenRouter 的 `reasoning`、`thinking`、`enable_thinking`），只接受部分等級或無法關閉推理的供應商也有對應處理。
@@ -50,19 +50,19 @@
 9. **上下文快取與 Prompt 快取**
    * 在 `RimLLMChatOptions` 設定 `CachedContext`，框架會把它併入系統訊息，具備服務端 prompt caching 的供應商（OpenAI，以及經 OpenAI 相容端點存取的 Gemini）會對重複前綴自動打折，大幅降低高頻重複請求的輸入 Token 成本與延遲。
    * **量化節省**：用量統計會解析 API 回傳的快取命中 Token（OpenAI `cached_tokens` 及其等價欄位），並依費率表中該模型的快取輸入估計費率計算。供應商定價可能變動，因此金額仍是估算值。
-   * 串流因取消、逾時或錯誤結束，仍會將已收到的用量結算一次。優先採用供應商回報值；已有部分輸出但未回報用量時，沿用一般 token 估算。停止串流不會抹除其每日預算消耗。
-   * **成本估算來自內建費率表**（OpenAI、Gemini、DeepSeek、Groq、Qwen、Kimi、MiniMax、Z.ai、Player2 與 xAI 模型；`gpt-4o-2024-11-20` 這類帶日期的變體會對到基底模型）。Player2 記為已知的 $0（本地免費，雲端以 joules 而非美元計費，joules 不列入費用估算）。查無費率代表**費用未知**，不是已知免費：其 token 照計入每日預算，但費用不列入顯示總額。Debug 分頁會顯示本次執行中查無費率的請求數。每日預算在請求前檢查已累計的輸入＋輸出 token，並非精確的消費上限。
-   * **預算超限應對策略只有兩種**：**直接阻斷並警告**（預設，請求被擋下並回報 `LLMError.QuotaExceeded`，每天彈一次遊戲內提示說明是 RimLLM 預算擋下的）與**只警告並照常送出**（每天彈一次遊戲內提示後繼續呼叫，超支要不要繼續由使用者自己決定）。設定檔若還留著已移除的策略（包含數值與「只警告」撞號的舊 SilentMocking），載入時會重設為「直接阻斷並警告」並提示一次，不會靜默變成放行。舊版以美元計的每日上限無法換算成 token，載入時會移除並提示一次，請玩家重新設定 token 預算。其他 Mod 自行實作、不記錄 token 的設定則退回舊版美元門檻。兩者都不改寫回應內容 —— 框架不會代你偽造一句看似正常的回答，那會讓呼叫端與玩家都誤以為模型真的回應了。
+   * 串流因取消、逾時或錯誤結束，仍會將已收到的用量結算一次。優先採用供應商回報值；已有部分輸出但未回報用量時，沿用一般 token 估算。停止串流不會抹除其每日預算消耗。直接使用內建 OpenAI 相容 adapter 的串流也會記錄供應商回報用量一次；由 executor 管理的串流仍只由 executor 記帳，避免重複。
+   * **成本估算來自內建費率表**（OpenAI、Gemini、DeepSeek、Groq、Qwen、Kimi、MiniMax、Z.ai、Player2 與 xAI 模型；`gpt-4o-2024-11-20` 這類帶日期的變體會對到基底模型）。Player2 記為已知的 $0（本地免費，雲端以 joules 而非美元計費，joules 不列入費用估算）。查無費率代表**費用未知**，不是已知免費：其 token 照計入每日預算，但費用不列入顯示總額。Debug 分頁會顯示本次執行中查無費率的請求數。HardBlock 會替進行中的邏輯請求保留輸入與輸出 token 估算，並在各次嘗試回報時結算實際用量；每日預算仍是估算門檻，不是精準的消費上限。
+   * **預算超限應對策略只有兩種**：**直接阻斷並警告**（預設，請求被擋下並回報 `LLMError.QuotaExceeded`，每天彈一次遊戲內提示說明是 RimLLM 預算擋下的）與**只警告並照常送出**（每天彈一次遊戲內提示後繼續呼叫，超支要不要繼續由使用者自己決定）。HardBlock 會以原子方式保留並行請求的估算額度，避免多個請求同時認領同一份餘額。設定檔若還留著已移除的策略（包含數值與「只警告」撞號的舊 SilentMocking），載入時會重設為「直接阻斷並警告」並提示一次，不會靜默變成放行。舊版以美元計的每日上限無法換算成 token，載入時會移除並提示一次，請玩家重新設定 token 預算。其他 Mod 自行實作、不記錄 token 的設定則退回舊版美元門檻。兩者都不改寫回應內容 —— 框架不會代你偽造一句看似正常的回答，那會讓呼叫端與玩家都誤以為模型真的回應了。
 10. **Embedding SDK**
-    * 框架公開由 Google Gemini、OpenAI、Ollama 或 OpenAI 相容端點支援的 embedding 功能。其他 Mod 可透過 `RimLLMProvider.CreateEmbeddingGenerator` 取得標準 `IEmbeddingGenerator`，用於語意檢索與分群。
+    * 框架公開由 Google Gemini、OpenAI、Ollama 或 OpenAI 相容端點支援的 embedding 功能。其他 Mod 可透過 `RimLLMProvider.CreateEmbeddingGenerator` 取得標準 `IEmbeddingGenerator`，用於語意檢索與分群。`EmbeddingGenerationOptions.ModelId` 可覆寫設定預設模型；`Dimensions` 會傳給供應商 SDK，端點支援時即可生效。
     * 所有線上來源都走 OpenAI SDK：Google 經官方 OpenAI 相容端點存取 Gemini，OpenAI 走其原生端點；Ollama 與自架服務使用 OpenAI SDK 的 `EmbeddingClient`（Ollama 走其 OpenAI 相容的 `/v1` 端點）。因此「Embedding 端點」欄位填的是**服務根位址**（如 `http://localhost:11434/v1`）；填入完整 `/embeddings` 路徑會自動正規化。模型、端點與金鑰依 Embedding 供應商分別保存，切換啟用的供應商不會遺失其他供應商的設定；模型或端點留空代表使用該供應商預設值，金鑰留空則繼承對應對話供應商的金鑰。
     * 設定頁可直接抓取可用模型清單，不必憑記憶輸入名稱；只要伺服器說得出哪些是 embedding 模型，清單就**只留真正的 embedding 模型**：Google 走原生 `/models` 清單（`supportedGenerationMethods` 含 `embedContent`）、Ollama 看 `/api/show` 的 `capabilities`、LM Studio 看 `/api/v0/models` 的 `type`，OpenAI 則依官方型錄固定的 `text-embedding-*` 命名過濾。只有兩者皆無的通用 OpenAI 相容伺服器才退回沒有能力資訊的 `/v1/models`，此時清單只**排序**（把像 embedding 的名稱排前面）而不過濾 —— 伺服器的模型名可能由使用者自訂，過濾會把合法選項藏起來；狀態列會明講清單未過濾。沒有模型清單端點的伺服器仍可手動輸入。
-    * Embedding 屬計費 API，因此與一般生成請求共用防濫用與每日預算檢查；HardBlock 會在送出前拒絕已超額請求，WarnOnly 則照常送出。其金鑰採用與供應商金鑰相同的 AES 加密。呼叫端取消保留 `OperationCanceledException`，只有框架自身逾時才轉為 `LLMError.Timeout`。
+    * Embedding 屬計費 API，因此與一般生成請求共用防濫用與每日預算檢查。HardBlock 會原子保留進行中呼叫的輸入 token 估算，餘額已被保留時就拒絕新請求；實際用量仍會在供應商回報時完整結算。WarnOnly 照常送出。用量變更會標記並排程遙測保存。其金鑰採用與供應商金鑰相同的 AES 加密。呼叫端取消保留 `OperationCanceledException`，只有框架自身逾時才轉為 `LLMError.Timeout`。
 11. **決策模型**
     * 框架提供決策服務，透過 TypeSafe 的 System One 協議取得型別化答案（是／否、選項、分數）。其他 Mod 可透過 `RimLLMProvider.CreateDecisionService(modId)` 取得受防護的 client；計畫以 `JevDecisionPlanBuilder` 建一次後重複使用。服務不內建安全閘門、路由或提示工程：計畫與機率解讀都由呼叫端負責。
     * 設定頁列出 TypeSafe（Jev）、Clef、Liquid d1、Solar Decide、Kev、Tev1、Laya、Span、Microsoft Decision-1 與 OpenAI Decisions。模型、端點與金鑰依供應商分開保存，切換啟用的供應商不會遺失其他設定。模型或端點留空代表使用供應商預設值；端點填 origin，client 會自動接上 `/v1/systemone`。
     * 所有金鑰採用與供應商金鑰相同的 AES 加密。設定頁可抓取閘道的模型清單（閘道沒有 `/v1/models` 時仍顯示預設模型），連線測試會送出真正的一題決策，因此「模型清單可用但決策回應格式不相容」的閘道會在呼叫端依賴前就被抓出來。
-    * 決策屬計費 API：每次呼叫都經過與對話、embedding 相同的呼叫者記錄、防濫用節流與每日 token 預算，並把供應商回報的輸入／輸出 token 記入用量帳本。所有失敗一律以 `RimLLMException`（附 `LLMError` 代碼）呈現——HTTP 狀態碼走共用的 `LLMErrorMapper` 對照（401 → `InvalidKey`、429 → `RateLimit` 且保留伺服器的 `Retry-After`、5xx → `ProviderOffline`），SDK 逾時對應 `Timeout`、斷網對應 `NetworkError`、協議違規對應 `InvalidResponse`；未啟用的供應商——以及 `https://` 端點缺金鑰——都會在送出前就被拒絕。呼叫端取消保留 `OperationCanceledException`。
+    * 決策屬計費 API：每次呼叫都經過與對話、embedding 相同的呼叫者記錄、防濫用節流與每日 token 預算，並把供應商回報的輸入／輸出 token 記入並保存於用量帳本。HardBlock 會替進行中呼叫保留估算輸入 token，避免多個並行請求認領同一份餘額。所有失敗一律以 `RimLLMException`（附 `LLMError` 代碼）呈現——HTTP 狀態碼走共用的 `LLMErrorMapper` 對照（401 → `InvalidKey`、429 → `RateLimit` 且保留伺服器的 `Retry-After`、5xx → `ProviderOffline`），SDK 逾時對應 `Timeout`、斷網對應 `NetworkError`、協議違規對應 `InvalidResponse`；未啟用的供應商——以及 `https://` 端點缺金鑰——都會在送出前就被拒絕。呼叫端取消保留 `OperationCanceledException`。
     * **Mod 可以選用自己的決策供應商。** 三個公開入口讓第三方 Mod 不必動到玩家設定就能這麼做：
         * `RimLLMProvider.GetDecisionAvailability()` 回傳 `DecisionAvailability` 快照——有沒有啟用決策供應商、是哪一家、解析後的模型、解析後的端點（origin）與有沒有保存金鑰。這是純查詢：不發網路請求，也絕不外洩金鑰本身。沒有啟用任何決策供應商時回報 `Enabled = false` 而不擲例外——「玩家還沒設定」是答案，不是錯誤。
         * `RimLLMDecisionClient.EvaluateWithProviderAsync(state, plan, providerId, model, ct)` 的端點、金鑰與模型都取自該供應商自己的設定，因此完全不會動到玩家的設定；缺金鑰、供應商 id 不存在或是 `Disabled` 標記，都會在送出任何請求之前就以 `RimLLMException`（`InvalidKey` 或 `Unknown`）拒絕。用量記到實際服務該次請求的供應商帳上，而不是啟用中的那一家，且歸屬資訊在請求開始時就快照下來。
@@ -80,7 +80,7 @@
 13. **第三方整合（強制其他 Mod 改走 RimLLM）**
     * 設定頁新增「第三方整合」分頁，列出 RimLLM 可以接管 LLM 流量的 Mod——目前包含 **RimTalk**（`cj.rimtalk`）、**Auto Translation**（`seohyeon.autotranslation`）**Mod 兼容性檢查器**（`modcompatchecker.main`）與 **簡中自動化：One**（`ow1r.scauto`）。開關開啟後，目標 Mod 的所有請求一律導入 RimLLM 的備援鏈、預算、節流與用量統計。開啟期間目標 Mod 自己的 API 金鑰／模型／端點設定會被忽略；開關即時生效不需重啟，預設**關閉**。
     * 每一列會顯示四種狀態之一：**未安裝**（本機沒有該 Mod）、**未啟用**（已安裝但未在 Mod 清單中啟用，請到清單啟用）、**掛載失敗**，或**已安裝／接管中**。已安裝未啟用的排在未安裝之前。
-    * **RimTalk**：提示工程完全不動，訊息（含「Output JSONL」指示）原樣轉送，串流文字逐塊餵進 RimTalk 自己的 `JsonStreamParser`，氣泡仍然像原生一樣一行一行冒出來。推理內容不會混進 JSONL 串流，且這類請求關閉思考以對齊 RimTalk 自身的預設。
+    * **RimTalk**：提示工程完全不動，訊息（含「Output JSONL」指示）原樣轉送，串流文字逐塊餵進 RimTalk 自己的 `JsonStreamParser`，氣泡仍然像原生一樣一行一行冒出來。推理內容不會混進 JSONL 串流，這類請求關閉思考以對齊 RimTalk 自身的預設，取消也會傳到進行中的請求與串流。
     * **Auto Translation**：完整支援單條與 XML 批次翻譯。以原生具備批次能力與佔位符防護的 `Translator_OpenAICompatible` 作為哨兵轉接，佔位符（`__PH0__` 等）防護、XML 批次打包與解析均沿用 Auto Translation 自身邏輯。開關開啟時自動同步當前翻譯器為哨兵，關閉或 RimLLM 缺金鑰/離線時自動退回原生翻譯引擎並節流警告。
     * **Mod 兼容性檢查器**：攔截 `AIService.CallAPIWithTimeout`，將 Harmony/XML 衝突分析、依賴問題與報錯診斷等請求全面導流至 RimLLM。接管開啟時自動將 `IsAIConfigured` 覆寫為 `true`，玩家無需在檢查器內重複設定金鑰即可直接使用 AI 診斷，並自動短路餘額查詢以杜絕 401 報錯。
     * **簡中自動化：One**：它的 AI 批量翻譯、品質評審與健康探測都經過同一個私有傳輸方法，因此一個 Harmony 前綴就同時涵蓋 Chat Completions 與 Responses 兩種協議。請求 JSON 交給 RimLLM，再把同協議格式的合成回應餵回該 Mod 自己的解析器，它原有的重試、格式降級與結構化輸出處理照常運作。接管開啟期間它也把端點視為本機，玩家不必填假金鑰；設定頁的「測試連線」與思考參數探測則直接短路為成功。錯誤會對應到它自己的暫時性／永久性錯誤類型，讓它的重試邏輯正確運作；與其他目標不同，這裡不會退回原生路徑（沒有金鑰退回去也只會失敗）。它的 OpenAI Batch API 通道不在涵蓋範圍。它的類別皆為 `internal`，轉接器因此完全以名稱經反射綁定，不需要參考用 DLL。

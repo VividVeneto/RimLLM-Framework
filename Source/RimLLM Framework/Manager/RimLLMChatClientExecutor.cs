@@ -392,8 +392,8 @@ internal static class RimLLMChatClientExecutor
             completionTokens = ToTokenCount(completionEstimate);
         }
 
-        int billedPrompt = Math.Max(1, promptTokens);
-        int billedCompletion = Math.Max(1, completionTokens);
+        int billedPrompt = reported ? promptTokens : Math.Max(1, promptTokens);
+        int billedCompletion = reported ? completionTokens : Math.Max(1, completionTokens);
         // 日誌附帶的單次用量與帳本同源；manager 缺席（直接測試 provider）時帳本略過、回呼照觸發。
         // 估算值不回呼：請求日誌沒有「估算」標示，顯示層以 0 代表未回報而省略。
         if (reported)
@@ -409,6 +409,8 @@ internal static class RimLLMChatClientExecutor
         }
         try
         {
+            // 每個已結算嘗試的實際用量都立即累計；外層 Guard 保留 logical request
+            // 的 estimate buffer 到整條 fallback/retry 流程結束，供下一次嘗試使用。
             RimLLMProvider.Manager.RecordUsage(
                 providerId,
                 model,

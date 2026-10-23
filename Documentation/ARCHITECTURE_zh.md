@@ -9,7 +9,7 @@
 * 框架對外暴露標準的 Microsoft.Extensions.AI 介面。呼叫端只面對 `IChatClient` 或 `IEmbeddingGenerator`，完全不需要知道實際由哪個供應商或模型處理 —— 調度與 Fallback 輪替由 `RimLLMManager` 負責。
 * `CreateChatClient` 回傳的是一疊 MEAI `DelegatingChatClient` 中介層——思考強度正規化、防濫用節流、預算保護、優先權佇列——最內層是沿 Fallback 鏈路由的 `FailoverChatClient`。每一層都是 `internal`。使用端會碰到的框架專屬型別只有 `RimLLMProvider`、`RimLLMDecisionClient`、`DecisionAvailability`、`RimLLMChatOptions`、`RimLLMException` 與 `LLMError`，其餘跨越邊界的全是 MEAI 型別。
 * `modId` 是純標籤，不是憑證。它是每個 Mod 防濫用節流與遙測歸屬的鍵，不需要任何註冊呼叫。
-* 對話、Embedding 與決策門面在送出計費請求前檢查同一份用量帳本，HardBlock、WarnOnly 與每日重置在所有路徑上的意義相同。對話訊息在守衛入口只物化一次，判斷工具續輪時不會先耗盡只能列舉一次的序列。
+* 對話、Embedding 與決策門面共用同一份 token 帳本。HardBlock 會以原子方式替進行中的邏輯請求保留 token 估算，並跨越 Fallback 嘗試維持保留；各次嘗試回報時結算實際用量，取消或失敗則釋放剩餘估算。因此並行請求不會同時認領同一份剩餘額度，但單筆實際用量仍可能超過估算，這不是精準消費上限。對話訊息在守衛入口只物化一次，判斷工具續輪時不會先耗盡只能列舉一次的序列。
 * 決策呼叫由 `RimLLMDecisionService`（Kkdev92.Jev，TypeSafe 的 System One wire format）執行，外層是 `RimLLMDecisionClient` 門面。門面會記錄呼叫者、套用防濫用節流與預算守衛，並把供應商回報的輸入／輸出 token 記進同一份帳本；歸屬資訊取自請求開始時的快照，請求途中切換啟用供應商不會把 token 記錯供應商。所有失敗都經共用的 `LLMErrorMapper` 收斂成含 `LLMError` 代碼的 `RimLLMException`。Client 會自動在 base address 後接上 `/v1/systemone`，因此端點填 origin；設定頁依供應商保存模型、端點與金鑰，連線測試會送出真正的一題決策，未啟用的供應商——以及 `https://` 端點缺金鑰——都會在送出前就被拒絕。
 * Mod 也能對「不是啟用中那一家的供應商」做決策。`RimLLMDecisionService.ResolveConnection(providerId, modelOverride)` 是解析決策連線的唯一入口：端點、金鑰與模型都取自該供應商自己的設定（經由 `IRimLLMSettings` 的逐供應商存取方法），並在送出前拒絕未啟用的供應商、不存在的供應商 id 與缺金鑰。`EvaluateWithProviderDetailedAsync` 與 `FetchDecisionModelsAsync` 都走這條路，因此「我正在跟誰對話」只在一處決定。`RimLLMDecisionService.GetAvailability()` 把同樣的值組成 `DecisionAvailability` DTO，供唯讀的「玩家有沒有設定？」檢查使用——只回報有沒有金鑰，絕不回報金鑰本身——再由 manager 轉發成 `RimLLMProvider.GetDecisionAvailability()`。`IRimLLMSettings` 上的逐供應商存取方法帶有預設介面實作，因此依舊版編譯、自行實作該介面的外部 Mod 仍能載入，不會撞上 `TypeLoadException`；這些預設實作只回答啟用中供應商，其他供應商一律回空字串——把啟用中供應商的金鑰借給別家，等於把金鑰送到錯誤的主機、用量記到錯誤的帳上。
 * Jev SDK 硬性要求 base address 必須是 HTTPS（`ClientSettings.ValidateBaseAddress` 會拒絕其他 scheme），但自架的決策服務講的是明文 HTTP。`DecisionEndpointRouting` 把這兩件事拆開：交給 SDK 一個同 host 與 port 的 HTTPS origin，`PlaintextEndpointRewriteHandler`（一個 `DelegatingHandler`，裝在服務本來就持有的 `HttpClient` 管線上）在請求送上線前把 URI 改寫回玩家設定的明文端點。SDK 自己的請求編碼與回應解碼因此完全沿用，不需要代理、隧道或憑證。改寫只動請求 URI，SDK 仍然以自己的 base address 組出 `/v1/systemone` 與 `/v1/models`。每次呼叫都用同一個 `HttpClient`，所以一個 handler 同時涵蓋決策與模型清單兩條路徑。明文端點也代表金鑰可以省略：SDK 直接拒絕空金鑰，因此框架改送佔位值；`https://` 端點缺金鑰時仍以 `InvalidKey` 失敗。兩條規則都依玩家設定的端點推導，而不是看供應商的身分，所以把遠端供應商指到本機服務同樣能運作，不必特別開例外。
@@ -18,6 +18,7 @@
 
 * 網路請求在背景執行緒池上非同步執行，但多數 Unity API 與 RimWorld 邏輯並非執行緒安全 —— 從背景執行緒呼叫會造成崩潰或 TPS 掉幀。
 * `RimLLMDispatcher` 是 MonoBehaviour 單例，以 `ConcurrentQueue` 收集背景執行緒的回呼，並在 Unity 每幀的 `Update` 中派送回主執行緒。
+* 請求日誌快照與遙測 dirty 狀態會在記帳器鎖內更新，再排程背景單寫者。因此持久化不依賴有界 Unity 回呼佇列在關閉前排空；遙測 JSON 序列化本身不使用 Scribe。
 * 排隊中的工具會在叫用前檢查取消，等待端可在工具尚未出列時取消等待；工具開始後則由工具本身配合取消。對話測試回呼攜帶請求世代，並在執行回呼時檢查；停止或清空會先使舊更新失效，避免歷史索引被新請求重用後遭到覆寫。
 
 ### 3. 串流橋接（`Channel<T>`）
@@ -27,12 +28,13 @@
 * `IAsyncEnumerable` 與 `ValueTask` 直接使用 .NET 10 的標準型別，不再使用 BCL 相容套件或 extern alias。
 * 一層薄包裝會解開 `ChannelClosedException`，讓生產端的失敗以原始的 `RimLLMException` 呈現給呼叫端。
 * Executor 的 fallback token 估算逐塊累加成計數，不暫存串流文字，異常大的串流不會讓記憶體無限成長。
-* 串流已有輸出或回報用量時，正常與異常結束都只結算一次。取消、閒置逾時及斷線會保留原本錯誤語意，同時保留已觀察到的消耗；尚未輸出或回報用量就失敗的串流，不會捏造一筆成功用量。
+* 串流已有輸出或回報用量時，正常與異常結束都只結算一次。取消、閒置逾時及斷線會保留原本錯誤語意，同時保留已觀察到的消耗；尚未輸出或回報用量就失敗的串流，不會捏造一筆成功用量。直接使用內建 OpenAI 相容 adapter 的串流也會記帳；由 executor 管理的串流仍交給 executor 結算，避免重複。
 
 ### 4. 統一的 HTTP 錯誤對照（`LLMErrorMapper`）
 
 * HTTP 狀態碼轉換為 `LLMError` 的規則集中在 `LLMErrorMapper` 一處，由官方 SDK 路徑（`ClientResultException`）與 embedding 服務共用。
 * `Retry-After` 的解析也在其中，基於 `RetryConditionHeaderValue`，因此延遲秒數與 HTTP 日期兩種格式在各處行為一致。
+* 內建 OpenAI 相容 adapter 轉換 SDK 例外時會保留回應的 `Retry-After` 標頭，讓 Fallback 策略遵守伺服器要求的等待時間。
 * 這使得「哪些狀態碼可重試」與「哪些代表 Schema 遭拒應降級」在各處行為完全相同。第三方自訂供應商也能引用同一份對照。
 
 ### 5. 容錯的結構化輸出（structured output 與 JSON repair）
@@ -71,7 +73,7 @@ Linux 需要 `libsecret-1.so.0`、工作階段 D-Bus 與已解鎖的 Secret Serv
 
 每個設定目錄的獨占鎖負責協調多個程序；新的 DPAPI 資料或鑰匙圈引用經過 flush 的暫存檔與原子重新命名後才發佈。已存在的引用若找不到秘密，會拒絕讀取，不會偷偷重建成不同金鑰。備份加密設定時，必須保留引用檔及其 OS 保護的秘密。`SecureKeyStoreTests` 涵蓋僅含引用的檔案、重新載入、損毀、服務不可用、秘密遺失及並行建立；另以 Linux 整合程式驗證真正的 libsecret／D-Bus／GNOME Keyring 工作階段與兩個程序。macOS 原生呼叫仍需在實機驗證。
 
-僅支援 `v3:` 密文。無版本前綴／v1／v2 格式、硬體 salt 注入、固定種子與遷移 helper 均已移除，舊的 CustomSalt 與 InitializeKeyAndIv API 也已刪除。未知前綴會在存取金鑰儲存前回傳 `null`；目前格式解密失敗時，設定與遙測呼叫端仍保留原始密文。這些保護不能隔離以相同 OS 使用者身分或在 RimWorld 行程內執行的程式碼。
+僅支援 `v3:` 密文。無版本前綴／v1／v2 格式、硬體 salt 注入、固定種子與遷移 helper 均已移除，舊的 CustomSalt 與 InitializeKeyAndIv API 也已刪除。未知前綴會在存取金鑰儲存前回傳 `null`；遙測歷史解密失敗時會嘗試從 `.bak` 復原，兩份資料都無法解密時則保留密文與備份，以便之後恢復。這些保護不能隔離以相同 OS 使用者身分或在 RimWorld 行程內執行的程式碼。
 
 ## 🧪 單元測試與驗證
 

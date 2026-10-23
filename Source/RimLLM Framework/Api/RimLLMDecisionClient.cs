@@ -38,16 +38,12 @@ public sealed class RimLLMDecisionClient
     {
         _manager.UsageTracker.RecordCaller(_modId);
         _manager.CheckAntiAbuseForMod(_modId);
-        if (!_manager.UsageTracker.CheckBudgetLimit())
-        {
-            throw new RimLLMException(LLMError.QuotaExceeded, "Daily budget limit exceeded.");
-        }
-
+        using RimLLMUsageTracker.BudgetReservation reservation = ReserveBudget(state, plan);
         DecisionEvaluation evaluation = await _manager.DecisionService
             .EvaluateDetailedAsync(state, plan, model, cancellationToken)
             .ConfigureAwait(false);
 
-        return RecordUsage(evaluation);
+        return RecordUsage(evaluation, reservation);
     }
 
     /// <summary>
@@ -68,16 +64,12 @@ public sealed class RimLLMDecisionClient
     {
         _manager.UsageTracker.RecordCaller(_modId);
         _manager.CheckAntiAbuseForMod(_modId);
-        if (!_manager.UsageTracker.CheckBudgetLimit())
-        {
-            throw new RimLLMException(LLMError.QuotaExceeded, "Daily budget limit exceeded.");
-        }
-
+        using RimLLMUsageTracker.BudgetReservation reservation = ReserveBudget(state, plan);
         DecisionEvaluation evaluation = await _manager.DecisionService
             .EvaluateWithProviderDetailedAsync(state, plan, providerId, model, cancellationToken)
             .ConfigureAwait(false);
 
-        return RecordUsage(evaluation);
+        return RecordUsage(evaluation, reservation);
     }
 
     /// <summary>
@@ -102,7 +94,24 @@ public sealed class RimLLMDecisionClient
     /// 歸屬資訊來自請求開始時的快照（DecisionEvaluation），await 之後不得重讀設定：
     /// 請求途中玩家切換啟用供應商，token 若記到新供應商就會污染帳本（與 RimLLMEmbeddingClient 同一考量）。
     /// </summary>
-    private JevResult RecordUsage(DecisionEvaluation evaluation)
+    private RimLLMUsageTracker.BudgetReservation ReserveBudget(string state, JevDecisionPlan plan)
+    {
+        long estimate = RimLLMChatClientExecutor.EstimateTokens(state ?? string.Empty);
+        if (plan != null)
+        {
+            long planEstimate = Math.Max(0L, plan.EncodedQuestionsLength);
+            estimate = estimate > long.MaxValue - planEstimate ? long.MaxValue : estimate + planEstimate;
+        }
+
+        if (!_manager.UsageTracker.TryReserveBudget(estimate, out RimLLMUsageTracker.BudgetReservation reservation))
+        {
+            throw new RimLLMException(LLMError.QuotaExceeded, "Daily budget limit exceeded.");
+        }
+
+        return reservation;
+    }
+
+    private JevResult RecordUsage(DecisionEvaluation evaluation, RimLLMUsageTracker.BudgetReservation reservation)
     {
         JevResult result = evaluation.Result;
         string modelId = result.ActualModel;
@@ -113,7 +122,7 @@ public sealed class RimLLMDecisionClient
 
         if (result.Usage is { } usage)
         {
-            _manager.RecordUsage(
+            reservation.RecordUsage(
                 evaluation.ProviderId,
                 modelId,
                 usage.InputTokens > int.MaxValue ? int.MaxValue : (int)usage.InputTokens,

@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.AI;
 using OpenAI;
 using OpenAI.Embeddings;
 using OpenAI.Models;
@@ -126,7 +127,33 @@ public class RimLLMEmbeddingService
     /// <exception cref="RimLLMException">
     /// 當 EmbeddingProvider 尚未設定、供應商不支援或 API 回傳錯誤時拋出。
     /// </exception>
-    public async Task<IReadOnlyList<RimLLMEmbeddingResult>> ComputeEmbeddingsAsync(IEnumerable<string> texts, CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<RimLLMEmbeddingResult>> ComputeEmbeddingsAsync(IEnumerable<string> texts, CancellationToken cancellationToken = default)
+    {
+        return ComputeEmbeddingsCoreAsync(texts, null, null, cancellationToken);
+    }
+
+    internal Task<IReadOnlyList<RimLLMEmbeddingResult>> ComputeEmbeddingsAsync(
+        IEnumerable<string> texts,
+        Microsoft.Extensions.AI.EmbeddingGenerationOptions generationOptions,
+        CancellationToken cancellationToken = default)
+    {
+        return ComputeEmbeddingsCoreAsync(texts, generationOptions, null, cancellationToken);
+    }
+
+    internal Task<IReadOnlyList<RimLLMEmbeddingResult>> ComputeEmbeddingsAsync(
+        IEnumerable<string> texts,
+        Microsoft.Extensions.AI.EmbeddingGenerationOptions generationOptions,
+        Action<IReadOnlyList<RimLLMEmbeddingResult>> onBatchCompleted,
+        CancellationToken cancellationToken = default)
+    {
+        return ComputeEmbeddingsCoreAsync(texts, generationOptions, onBatchCompleted, cancellationToken);
+    }
+
+    private async Task<IReadOnlyList<RimLLMEmbeddingResult>> ComputeEmbeddingsCoreAsync(
+        IEnumerable<string> texts,
+        Microsoft.Extensions.AI.EmbeddingGenerationOptions generationOptions,
+        Action<IReadOnlyList<RimLLMEmbeddingResult>> onBatchCompleted,
+        CancellationToken cancellationToken)
     {
         if (texts == null) throw new ArgumentNullException(nameof(texts));
         cancellationToken.ThrowIfCancellationRequested();
@@ -151,7 +178,9 @@ public class RimLLMEmbeddingService
                 "No embedding provider is configured; select one in the RimLLM settings first.");
         }
 
-        string model = _settings.EmbeddingModel;
+        string model = !string.IsNullOrWhiteSpace(generationOptions?.ModelId)
+            ? generationOptions.ModelId
+            : _settings.EmbeddingModel;
         string apiKey = string.IsNullOrEmpty(_settings.EmbeddingApiKey)
             ? _settings.GetActiveApiKey(GetMainProviderIdForEmbedding(provider))
             : _settings.EmbeddingApiKey;
@@ -160,12 +189,13 @@ public class RimLLMEmbeddingService
 
         // 以 ApiTimeout 建立逾時來源，並與呼叫端的取消 Token 連動。逾時以整批為單位。
         float timeoutSeconds = _settings.ApiTimeout > 0 ? _settings.ApiTimeout : 30f;
-        var batchContext = new EmbeddingBatchContext(model, provider, apiKey, endpoint, defaultEndpoint, timeoutSeconds);
+        var batchContext = new EmbeddingBatchContext(model, provider, apiKey, endpoint, defaultEndpoint, timeoutSeconds, generationOptions?.Clone());
         for (int offset = 0; offset < inputs.Count; offset += MaxEmbeddingBatchSize)
         {
             List<string> batch = inputs.GetRange(offset, Math.Min(MaxEmbeddingBatchSize, inputs.Count - offset));
             var batchResults = await ComputeBatchAsync(batch, batchContext, cancellationToken).ConfigureAwait(false);
             results.AddRange(batchResults);
+            onBatchCompleted?.Invoke(batchResults);
         }
 
         return results;
@@ -179,8 +209,16 @@ public class RimLLMEmbeddingService
         public string Endpoint { get; }
         public string DefaultEndpoint { get; }
         public float TimeoutSeconds { get; }
+        public Microsoft.Extensions.AI.EmbeddingGenerationOptions GenerationOptions { get; }
 
-        public EmbeddingBatchContext(string model, string provider, string apiKey, string endpoint, string defaultEndpoint, float timeoutSeconds)
+        public EmbeddingBatchContext(
+            string model,
+            string provider,
+            string apiKey,
+            string endpoint,
+            string defaultEndpoint,
+            float timeoutSeconds,
+            Microsoft.Extensions.AI.EmbeddingGenerationOptions generationOptions)
         {
             Model = model;
             Provider = provider;
@@ -188,6 +226,7 @@ public class RimLLMEmbeddingService
             Endpoint = endpoint;
             DefaultEndpoint = defaultEndpoint;
             TimeoutSeconds = timeoutSeconds;
+            GenerationOptions = generationOptions;
         }
     }
 
@@ -199,7 +238,8 @@ public class RimLLMEmbeddingService
         try
         {
             return await ComputeOpenAiCompatibleEmbeddingsAsync(
-                batch, ctx.Model, ctx.Provider, ctx.ApiKey, ctx.Endpoint, ctx.DefaultEndpoint, linkedCts.Token).ConfigureAwait(false);
+                batch, ctx.Model, ctx.Provider, ctx.ApiKey, ctx.Endpoint, ctx.DefaultEndpoint,
+                ctx.GenerationOptions?.Clone(), linkedCts.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
@@ -619,7 +659,7 @@ public class RimLLMEmbeddingService
         try
         {
             List<RimLLMEmbeddingResult> results = await ComputeOpenAiCompatibleEmbeddingsAsync(
-                new[] { text }, model, provider, effectiveApiKey, endpoint, ResolveDefaultEndpoint(provider), linkedCts.Token).ConfigureAwait(false);
+                new[] { text }, model, provider, effectiveApiKey, endpoint, ResolveDefaultEndpoint(provider), null, linkedCts.Token).ConfigureAwait(false);
             return results[0];
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
@@ -744,13 +784,21 @@ public class RimLLMEmbeddingService
     /// 供應商身分，帶進每一筆結果供呼叫端標記向量與記帳，避免 await 之後設定被改。
     /// </summary>
     private static async Task<List<RimLLMEmbeddingResult>> ComputeOpenAiCompatibleEmbeddingsAsync(
-        IReadOnlyList<string> texts, string model, string providerId, string apiKey, string endpoint, string defaultEndpoint, CancellationToken cancellationToken)
+        IReadOnlyList<string> texts,
+        string model,
+        string providerId,
+        string apiKey,
+        string endpoint,
+        string defaultEndpoint,
+        Microsoft.Extensions.AI.EmbeddingGenerationOptions generationOptions,
+        CancellationToken cancellationToken)
     {
         BuildOpenAiCompatibleClientArgs(apiKey, endpoint, defaultEndpoint, out var credential, out var options);
         var client = new EmbeddingClient(model, credential, options);
 
-        OpenAIEmbeddingCollection embeddings = await client
-            .GenerateEmbeddingsAsync(texts, cancellationToken: cancellationToken)
+        using IEmbeddingGenerator<string, Embedding<float>> generator = client.AsIEmbeddingGenerator();
+        GeneratedEmbeddings<Embedding<float>> embeddings = await generator
+            .GenerateAsync(texts, generationOptions, cancellationToken)
             .ConfigureAwait(false);
 
         if (embeddings == null || embeddings.Count != texts.Count)
@@ -760,19 +808,25 @@ public class RimLLMEmbeddingService
                 $"The OpenAI-compatible embedding response contained {embeddings?.Count ?? 0} vector(s) for {texts.Count} input(s).");
         }
 
-        return DistributeUsage(embeddings, embeddings.Usage?.InputTokenCount, model, providerId);
+        var vectors = new List<float[]>(embeddings.Count);
+        foreach (Embedding<float> embedding in embeddings)
+        {
+            vectors.Add(embedding.Vector.ToArray());
+        }
+
+        return DistributeUsage(vectors, embeddings.Usage?.InputTokenCount, model, providerId);
     }
 
     /// <summary>
     /// 把整批的輸入 token 數平均分攤到每一筆（餘數給前幾筆），沒回報用量時每筆都是 null。
     /// 每一筆都帶上實際使用的模型與供應商（由請求開始時捕捉，見 <see cref="ComputeEmbeddingsAsync"/>）。
     /// </summary>
-    private static List<RimLLMEmbeddingResult> DistributeUsage(OpenAIEmbeddingCollection embeddings, long? totalInputTokens, string modelId, string providerId)
+    private static List<RimLLMEmbeddingResult> DistributeUsage(IReadOnlyList<float[]> vectors, long? totalInputTokens, string modelId, string providerId)
     {
-        var results = new List<RimLLMEmbeddingResult>(embeddings.Count);
-        long share = totalInputTokens.HasValue ? totalInputTokens.Value / embeddings.Count : 0;
-        long remainder = totalInputTokens.HasValue ? totalInputTokens.Value % embeddings.Count : 0;
-        for (int i = 0; i < embeddings.Count; i++)
+        var results = new List<RimLLMEmbeddingResult>(vectors.Count);
+        long share = totalInputTokens.HasValue ? totalInputTokens.Value / vectors.Count : 0;
+        long remainder = totalInputTokens.HasValue ? totalInputTokens.Value % vectors.Count : 0;
+        for (int i = 0; i < vectors.Count; i++)
         {
             long? perItem = null;
             if (totalInputTokens.HasValue)
@@ -780,7 +834,7 @@ public class RimLLMEmbeddingService
                 long extra = i < remainder ? 1 : 0;
                 perItem = share + extra;
             }
-            results.Add(new RimLLMEmbeddingResult(embeddings[i].ToFloats().ToArray(), perItem, modelId, providerId));
+            results.Add(new RimLLMEmbeddingResult(vectors[i], perItem, modelId, providerId));
         }
         return results;
     }

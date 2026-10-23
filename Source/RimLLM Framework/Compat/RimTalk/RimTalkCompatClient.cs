@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -115,7 +116,8 @@ internal sealed class RimTalkCompatClient
 
     private async Task<Completion> CompleteAsync(List<ChatMessage> chatMessages)
     {
-        ChatResponse response = await Chat.GetResponseAsync(chatMessages, BuildOptions(), CancellationToken.None);
+        CancellationToken cancellationToken = GetCancellationTokenFromRimTalk();
+        ChatResponse response = await Chat.GetResponseAsync(chatMessages, BuildOptions(), cancellationToken);
         return new Completion
         {
             ModelId = response.ModelId,
@@ -129,35 +131,29 @@ internal sealed class RimTalkCompatClient
         var fullText = new StringBuilder();
         string modelId = null;
         int tokens = 0;
+        CancellationToken cancellationToken = GetCancellationTokenFromRimTalk();
 
-        using (var cts = new CancellationTokenSource())
+        await foreach (ChatResponseUpdate update in Chat.GetStreamingResponseAsync(chatMessages, BuildOptions(), cancellationToken))
         {
-            await foreach (ChatResponseUpdate update in Chat.GetStreamingResponseAsync(chatMessages, BuildOptions(), cts.Token))
+            cancellationToken.ThrowIfCancellationRequested();
+            if (update == null) continue;
+
+            if (modelId == null && !string.IsNullOrEmpty(update.ModelId))
             {
-                if (IsCanceledByRimTalk())
-                {
-                    cts.Cancel();
-                    throw new OperationCanceledException("Request canceled by RimTalk.");
-                }
-                if (update == null) continue;
-
-                if (modelId == null && !string.IsNullOrEmpty(update.ModelId))
-                {
-                    modelId = update.ModelId;
-                }
-                int updateTokens = ExtractTokens(update);
-                if (updateTokens > 0)
-                {
-                    tokens = updateTokens;
-                }
-
-                // update.Text 只串接 TextContent，推理內容（TextReasoningContent）不會混進來污染 JSONL 解析。
-                string text = update.Text;
-                if (string.IsNullOrEmpty(text)) continue;
-
-                fullText.Append(text);
-                onChunk?.Invoke(text);
+                modelId = update.ModelId;
             }
+            int updateTokens = ExtractTokens(update);
+            if (updateTokens > 0)
+            {
+                tokens = updateTokens;
+            }
+
+            // update.Text 只串接 TextContent，推理內容（TextReasoningContent）不會混進來污染 JSONL 解析。
+            string text = update.Text;
+            if (string.IsNullOrEmpty(text)) continue;
+
+            fullText.Append(text);
+            onChunk?.Invoke(text);
         }
 
         return new Completion { ModelId = modelId, Text = fullText.ToString(), Tokens = tokens };
@@ -176,12 +172,31 @@ internal sealed class RimTalkCompatClient
     }
 
     /// <summary>
-    /// 取消透過 <see cref="AIService.IsCancellationRequested"/> 逐塊輪詢，與原生 client 在下載 handler 內的做法相同。
+    /// 取得目前 RimTalk 請求的 token，讓 provider 能在等待回應或串流資料時直接取消。
     /// 獨立成非 async 方法，讓 RimTalk 型別留在方法本體、不進入狀態機。
     /// </summary>
-    private static bool IsCanceledByRimTalk()
+    private static CancellationToken GetCancellationTokenFromRimTalk()
     {
-        return AIService.IsCancellationRequested();
+        // The checked-in RimTalk reference predates this property, but the current
+        // runtime API exposes it. Reflect so the mod still compiles against the
+        // reference DLL and gracefully falls back with older installed versions.
+        try
+        {
+            PropertyInfo property = typeof(AIService).GetProperty(
+                "CurrentCancellationToken",
+                BindingFlags.Public | BindingFlags.Static);
+            return property?.GetValue(null) is CancellationToken token
+                ? token
+                : CancellationToken.None;
+        }
+        catch (TargetInvocationException)
+        {
+            return CancellationToken.None;
+        }
+        catch (MemberAccessException)
+        {
+            return CancellationToken.None;
+        }
     }
 
     /// <summary>

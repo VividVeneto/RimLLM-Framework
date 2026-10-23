@@ -20,6 +20,7 @@ public class RimLLMTelemetryStore
 
     private readonly object _ioLock = new();
     private string _undecryptableEncryptedChatHistory;
+    private bool _preserveBackupOnSave;
 
     /// <summary>
     /// 檔案路徑解析器。抽為可替換的委派，讓單元測試能指向暫存目錄，
@@ -91,13 +92,14 @@ public class RimLLMTelemetryStore
             }
 
             _undecryptableEncryptedChatHistory = null;
+            _preserveBackupOnSave = false;
             IsDirty = true;
         }
     }
 
     /// <summary>
     /// 從磁碟載入遙測資料。檔案不存在或格式錯誤時保留預設空值；
-    /// 主檔損毀時會嘗試從 .bak 備份還原。
+    /// 主檔格式錯誤或加密歷史無法解密時會嘗試從 .bak 備份還原。
     /// </summary>
     public void Load()
     {
@@ -115,22 +117,68 @@ public class RimLLMTelemetryStore
                 return;
             }
 
-            if (TryLoadFrom(path, out bool needsRewrite))
+            string backupPath = path + ".bak";
+            var primary = new RimLLMTelemetryStore();
+            if (primary.TryLoadFrom(path, out bool needsRewrite))
             {
+                if (primary._undecryptableEncryptedChatHistory != null)
+                {
+                    var backup = new RimLLMTelemetryStore();
+                    if (backup.TryLoadFrom(backupPath, out _) &&
+                        backup._undecryptableEncryptedChatHistory == null)
+                    {
+                        bool restored = TryRestoreFromBackup(backupPath, path);
+                        CopyDataFrom(backup);
+                        _preserveBackupOnSave = !restored;
+                        LoadedFromDisk = true;
+                        IsDirty = true;
+                        RimLLMLog.Warning(restored
+                            ? "[RimLLM] Telemetry chat history could not be decrypted; restored from the .bak backup."
+                            : "[RimLLM] Telemetry chat history could not be decrypted; loaded the .bak backup in memory while preserving it on disk.");
+                        return;
+                    }
+
+                    // 若主檔與備份的密文都無法解開，後續保存不可用主檔覆寫唯一備份。
+                    if (backup._undecryptableEncryptedChatHistory != null)
+                    {
+                        primary._preserveBackupOnSave = true;
+                    }
+                }
+
+                CopyDataFrom(primary);
                 LoadedFromDisk = true;
                 // 讀到的是舊版明文歷史，標記為待重寫以完成加密遷移。
                 if (needsRewrite) IsDirty = true;
                 return;
             }
 
-            string backupPath = path + ".bak";
-            if (TryLoadFrom(backupPath, out _))
+            var recovered = new RimLLMTelemetryStore();
+            if (recovered.TryLoadFrom(backupPath, out _))
             {
-                RimLLMLog.Warning("[RimLLM] Telemetry file could not be parsed; restored from the .bak backup.");
+                bool restored = TryRestoreFromBackup(backupPath, path);
+                CopyDataFrom(recovered);
+                _preserveBackupOnSave = !restored;
                 LoadedFromDisk = true;
                 IsDirty = true;
+                RimLLMLog.Warning(restored
+                    ? "[RimLLM] Telemetry file could not be parsed; restored from the .bak backup."
+                    : "[RimLLM] Telemetry file could not be parsed; loaded the .bak backup in memory while preserving it on disk.");
             }
         }
+    }
+
+    private void CopyDataFrom(RimLLMTelemetryStore source)
+    {
+        ChatHistory = source.ChatHistory;
+        RequestLogs = source.RequestLogs;
+        TotalPromptTokens = source.TotalPromptTokens;
+        TotalCompletionTokens = source.TotalCompletionTokens;
+        TotalEstimatedCost = source.TotalEstimatedCost;
+        DailyAccumulatedCost = source.DailyAccumulatedCost;
+        DailyAccumulatedTokens = source.DailyAccumulatedTokens;
+        DailyBudgetResetDate = source.DailyBudgetResetDate;
+        _undecryptableEncryptedChatHistory = source._undecryptableEncryptedChatHistory;
+        _preserveBackupOnSave = source._preserveBackupOnSave;
     }
 
     private bool TryLoadFrom(string path, out bool needsRewrite)
@@ -259,13 +307,17 @@ public class RimLLMTelemetryStore
                 };
 
                 File.WriteAllText(tempPath, RimLLMJsonHelper.Serialize(dto));
-                ReplaceAtomically(tempPath, path, backupPath);
+                ReplaceAtomically(tempPath, path, _preserveBackupOnSave ? null : backupPath);
 
                 LoadedFromDisk = true;
                 IsDirty = false;
                 if (ChatHistory != null && ChatHistory.Count > 0)
                 {
                     _undecryptableEncryptedChatHistory = null;
+                }
+                if (_undecryptableEncryptedChatHistory == null)
+                {
+                    _preserveBackupOnSave = false;
                 }
             }
             catch (Exception ex)
@@ -290,10 +342,50 @@ public class RimLLMTelemetryStore
         }
         catch (Exception ex) when (ex is PlatformNotSupportedException || ex is IOException)
         {
+            if (backupPath == null)
+            {
+                // 檔案系統不支援原子替換時，復原流程仍必須保留已知有效的 .bak。
+                string displacedPath = path + ".replace.old";
+                try { if (File.Exists(displacedPath)) File.Delete(displacedPath); } catch { }
+                File.Move(path, displacedPath);
+                try
+                {
+                    File.Move(tempPath, path);
+                }
+                catch
+                {
+                    try
+                    {
+                        if (!File.Exists(path) && File.Exists(displacedPath)) File.Move(displacedPath, path);
+                    }
+                    catch { }
+                    throw;
+                }
+                try { File.Delete(displacedPath); } catch { }
+                return;
+            }
+
             // 部分檔案系統不支援 File.Replace，退回「先備份再覆寫」。
             try { if (File.Exists(backupPath)) File.Delete(backupPath); } catch { }
             try { File.Move(path, backupPath); } catch { }
             File.Move(tempPath, path);
+        }
+    }
+
+    private static bool TryRestoreFromBackup(string backupPath, string path)
+    {
+        string restorePath = path + ".restore.tmp";
+        try
+        {
+            File.Copy(backupPath, restorePath, true);
+            ReplaceAtomically(restorePath, path, null);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            RimLLMLog.Warning($"[RimLLM] Failed to restore telemetry from .bak; preserving the backup: {ex.Message}");
+            try { if (File.Exists(restorePath)) File.Delete(restorePath); } catch { }
+            return false;
         }
     }
 

@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.AI;
+using RimLLM_Framework.Api;
 
 namespace RimLLM_Framework.Manager;
 
@@ -36,14 +38,15 @@ internal sealed class RimLLMGuardChatClient : DelegatingChatClient
         _usageTracker = usageTracker ?? throw new ArgumentNullException(nameof(usageTracker));
     }
 
-    public override Task<ChatResponse> GetResponseAsync(
+    public override async Task<ChatResponse> GetResponseAsync(
         IEnumerable<ChatMessage> messages,
         ChatOptions options = null,
         CancellationToken cancellationToken = default)
     {
         List<ChatMessage> bufferedMessages = messages?.ToList();
         Guard(bufferedMessages);
-        return base.GetResponseAsync(bufferedMessages, options, cancellationToken);
+        using RimLLMUsageTracker.BudgetReservation reservation = ReserveBudget(bufferedMessages, options);
+        return await base.GetResponseAsync(bufferedMessages, options, cancellationToken).ConfigureAwait(false);
     }
 
     public override IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
@@ -53,11 +56,10 @@ internal sealed class RimLLMGuardChatClient : DelegatingChatClient
     {
         List<ChatMessage> bufferedMessages = messages?.ToList();
 
-        // 刻意在建立列舉器之前就檢查，與非串流路徑同時計入同一個視窗：
-        // 若延後到第一次 MoveNextAsync 才檢查，尚未開始列舉的請求就不會計數，
-        // 送出大量請求卻不列舉即可繞過節流。
+        // 防濫用檢查維持在取得列舉器時執行。預算 reservation 延到第一次列舉，
+        // 避免呼叫端建立串流後從未列舉，永久占住每日額度。
         Guard(bufferedMessages);
-        return base.GetStreamingResponseAsync(bufferedMessages, options, cancellationToken);
+        return StreamWithBudgetReservationAsync(bufferedMessages, options, cancellationToken);
     }
 
     private void Guard(IEnumerable<ChatMessage> messages)
@@ -69,9 +71,61 @@ internal sealed class RimLLMGuardChatClient : DelegatingChatClient
             _throttleStore.CheckAntiAbuse(_modId, countTowardWindow: !IsToolLoopContinuation(messages));
         }
 
-        if (!_usageTracker.CheckBudgetLimit())
+    }
+
+    private RimLLMUsageTracker.BudgetReservation ReserveBudget(IEnumerable<ChatMessage> messages, ChatOptions options)
+    {
+        long estimate = EstimateBudgetTokens(messages, options);
+        if (!_usageTracker.TryReserveBudget(estimate, out RimLLMUsageTracker.BudgetReservation reservation))
         {
             throw new RimLLMException(LLMError.QuotaExceeded, "Daily budget limit exceeded.");
+        }
+        return reservation;
+    }
+
+    private static long EstimateBudgetTokens(IEnumerable<ChatMessage> messages, ChatOptions options)
+    {
+        long estimate = 0;
+        if (messages != null)
+        {
+            foreach (ChatMessage message in messages)
+            {
+                if (!string.IsNullOrEmpty(message?.Text))
+                {
+                    estimate = SaturatingAdd(estimate, RimLLMChatClientExecutor.EstimateTokens(message.Text));
+                }
+            }
+        }
+
+        string cachedContext = RimLLMChatOptions.GetCachedContext(options);
+        if (!string.IsNullOrEmpty(cachedContext))
+        {
+            estimate = SaturatingAdd(estimate, RimLLMChatClientExecutor.EstimateTokens(cachedContext));
+        }
+
+        // BuildOptions supplies 1024 when the caller leaves MaxOutputTokens unset.
+        estimate = SaturatingAdd(estimate, Math.Max(0, options?.MaxOutputTokens ?? 1024));
+        return Math.Max(1, estimate);
+    }
+
+    private static long SaturatingAdd(long left, long right)
+    {
+        return right > 0 && left > long.MaxValue - right ? long.MaxValue : left + right;
+    }
+
+    private async IAsyncEnumerable<ChatResponseUpdate> StreamWithBudgetReservationAsync(
+        List<ChatMessage> messages,
+        ChatOptions options,
+        CancellationToken cancellationToken,
+        [EnumeratorCancellation] CancellationToken enumerationCancellationToken = default)
+    {
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, enumerationCancellationToken);
+        using RimLLMUsageTracker.BudgetReservation reservation = ReserveBudget(messages, options);
+        await foreach (ChatResponseUpdate update in base.GetStreamingResponseAsync(messages, options, linkedCts.Token)
+            .WithCancellation(linkedCts.Token)
+            .ConfigureAwait(false))
+        {
+            yield return update;
         }
     }
 

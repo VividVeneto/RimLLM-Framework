@@ -19,6 +19,11 @@ public class RimLLMUsageTracker
     private static DateTime _lastLogWriteTime = DateTime.MinValue;
     private static readonly object LogLock = new();
     private static readonly object UsageLock = new();
+    private static bool _telemetrySaveDeferred;
+    private static long _telemetrySaveScheduleVersion;
+    // 每筆 reservation 在整個 logical request（含 fallback/retry）結束前都保留一份估算額度。
+    private long _reservedBudgetTokens;
+    private int _reservedLegacyBudgetRequests;
 
     /// <summary>日誌保留上限。與 Trim 邏輯共用，避免魔法數字散落。</summary>
     internal const int MaxRetainedLogs = 30;
@@ -283,44 +288,19 @@ public class RimLLMUsageTracker
         entry.PromptTokens = Math.Max(0, entry.PromptTokens);
         entry.CompletionTokens = Math.Max(0, entry.CompletionTokens);
 
-        RequestLogs.Enqueue(entry);
-        Interlocked.Increment(ref _logCount);
-        TrimLogs();
-
-        CountOutcome(entry.Provider, entry.Success);
-
-        RimLLMDispatcher.EnqueueOnMainThread(() =>
+        TelemetrySaveSchedule schedule;
+        lock (LogLock)
         {
-            bool needSave;
-            lock (LogLock)
-            {
-                _settings.RequestLogs = new List<RimLLMManager.RequestLogEntry>(RequestLogs.ToArray());
-                // 節流：非成功或過了 15 秒以上才執行實體寫入（僅寫遙測 JSON，不動設定 XML）
-                if (!entry.Success || (DateTime.UtcNow - _lastLogWriteTime).TotalSeconds > 15)
-                {
-                    _lastLogWriteTime = DateTime.UtcNow;
-                    // 寫檔在背景非同步進行：先標記待寫入，讓關閉時的 FlushTelemetryIfDirty
-                    // 能補上尚未完成或失敗的背景寫入；Save 成功會自行清除該標記。
-                    _settings.MarkTelemetryDirty();
-                    needSave = true;
-                }
-                else
-                {
-                    // 被節流跳過的變更需標記為待寫入，關閉遊戲時才會強制 flush，
-                    // 否則 session 最後一段用量永遠寫不進去。
-                    _settings.MarkTelemetryDirty();
-                    needSave = false;
-                }
-            }
+            RequestLogs.Enqueue(entry);
+            Interlocked.Increment(ref _logCount);
+            TrimLogs();
+            _settings.RequestLogs = new List<RimLLMManager.RequestLogEntry>(RequestLogs.ToArray());
+            CountOutcome(entry.Provider, entry.Success);
+            // Snapshot 與 dirty 標記同鎖更新，讓背景寫入及關閉 flush 都能看見最新日誌。
+            schedule = MarkTelemetryDirtyLocked(immediate: !entry.Success);
+        }
 
-            // AES 加密 + JSON 序列化 + 磁碟寫入改由背景單寫者執行，
-            // 不再佔用主線程派遣器的 2ms 幀預算。記憶體內的 RequestLogs 更新仍在主線程，
-            // 與既有 Scribe/設定寫入互斥語意一致。
-            if (needSave)
-            {
-                QueueTelemetrySave(_settings);
-            }
-        });
+        RunTelemetrySaveSchedule(schedule);
     }
 
     /// <summary>
@@ -342,6 +322,82 @@ public class RimLLMUsageTracker
     private static readonly object SaveQueueLock = new();
     private static bool _telemetrySaveRunning;
     private static bool _telemetrySaveRequested;
+
+    private readonly struct TelemetrySaveSchedule
+    {
+        public bool QueueNow { get; }
+        public bool QueueLater { get; }
+        public TimeSpan Delay { get; }
+        public long Version { get; }
+
+        public TelemetrySaveSchedule(bool queueNow, bool queueLater, TimeSpan delay, long version)
+        {
+            QueueNow = queueNow;
+            QueueLater = queueLater;
+            Delay = delay;
+            Version = version;
+        }
+    }
+
+    /// <summary>LogLock 必須由呼叫端持有，讓快照、dirty 標記和節流時間保持同一個順序。</summary>
+    private TelemetrySaveSchedule MarkTelemetryDirtyLocked(bool immediate)
+    {
+        _settings.MarkTelemetryDirty();
+        DateTime now = DateTime.UtcNow;
+        TimeSpan interval = TimeSpan.FromSeconds(15);
+        TimeSpan elapsed = _lastLogWriteTime == DateTime.MinValue
+            ? interval
+            : now - _lastLogWriteTime;
+
+        if (immediate || elapsed >= interval)
+        {
+            _lastLogWriteTime = now;
+            _telemetrySaveDeferred = false;
+            _telemetrySaveScheduleVersion++;
+            return new TelemetrySaveSchedule(true, false, TimeSpan.Zero, _telemetrySaveScheduleVersion);
+        }
+
+        if (!_telemetrySaveDeferred)
+        {
+            _telemetrySaveDeferred = true;
+            long version = ++_telemetrySaveScheduleVersion;
+            return new TelemetrySaveSchedule(false, true, interval - elapsed, version);
+        }
+
+        return default;
+    }
+
+    private void RunTelemetrySaveSchedule(TelemetrySaveSchedule schedule)
+    {
+        if (schedule.QueueNow)
+        {
+            QueueTelemetrySave(_settings);
+        }
+        else if (schedule.QueueLater)
+        {
+            _ = QueueTelemetrySaveAfterDelay(_settings, schedule.Delay, schedule.Version);
+        }
+    }
+
+    private static async Task QueueTelemetrySaveAfterDelay(IRimLLMSettings settings, TimeSpan delay, long version)
+    {
+        await Task.Delay(delay).ConfigureAwait(false);
+        bool shouldQueue;
+        lock (LogLock)
+        {
+            shouldQueue = _telemetrySaveDeferred && version == _telemetrySaveScheduleVersion;
+            if (shouldQueue)
+            {
+                _telemetrySaveDeferred = false;
+                _lastLogWriteTime = DateTime.UtcNow;
+            }
+        }
+
+        if (shouldQueue)
+        {
+            QueueTelemetrySave(settings);
+        }
+    }
 
     /// <summary>
     /// 把遙測寫檔排入背景單寫者佇列。同一時間最多一個寫檔在跑，
@@ -423,17 +479,17 @@ public class RimLLMUsageTracker
     /// </summary>
     public void ClearLogs()
     {
-        while (RequestLogs.TryDequeue(out _)) { }
-        Interlocked.Exchange(ref _logCount, 0);
-        ProviderStatistics.Clear();
-
         lock (LogLock)
         {
+            while (RequestLogs.TryDequeue(out _)) { }
+            Interlocked.Exchange(ref _logCount, 0);
+            ProviderStatistics.Clear();
             _settings.RequestLogs = [];
+            _settings.MarkTelemetryDirty();
+            InvalidateDeferredTelemetrySaveLocked();
             try
             {
                 _settings.SaveTelemetry();
-                _lastLogWriteTime = DateTime.UtcNow;
             }
             catch (Exception ex)
             {
@@ -448,16 +504,19 @@ public class RimLLMUsageTracker
     public void CheckDailyReset()
     {
         string todayStr = DateTime.Today.ToString("yyyy-MM-dd");
-        lock (UsageLock)
+        lock (LogLock)
         {
-            if (string.IsNullOrEmpty(_settings.DailyBudgetResetDate) || _settings.DailyBudgetResetDate != todayStr)
+            lock (UsageLock)
             {
-                _settings.DailyAccumulatedCost = 0f;
-                if (_settings is IDailyTokenBudget tokenLedger)
+                if (string.IsNullOrEmpty(_settings.DailyBudgetResetDate) || _settings.DailyBudgetResetDate != todayStr)
                 {
-                    tokenLedger.DailyAccumulatedTokens = 0;
+                    _settings.DailyAccumulatedCost = 0f;
+                    if (_settings is IDailyTokenBudget tokenLedger)
+                    {
+                        tokenLedger.DailyAccumulatedTokens = 0;
+                    }
+                    _settings.DailyBudgetResetDate = todayStr;
                 }
-                _settings.DailyBudgetResetDate = todayStr;
             }
         }
     }
@@ -472,42 +531,54 @@ public class RimLLMUsageTracker
     /// </param>
     public void RecordUsage(string providerId, string modelName, int promptTokens, int completionTokens, int cachedPromptTokens = 0)
     {
-        if (promptTokens <= 0 && completionTokens <= 0) return;
+        promptTokens = Math.Max(0, promptTokens);
+        completionTokens = Math.Max(0, completionTokens);
+        if (promptTokens == 0 && completionTokens == 0) return;
 
         if (cachedPromptTokens < 0) cachedPromptTokens = 0;
         if (cachedPromptTokens > promptTokens) cachedPromptTokens = promptTokens;
 
         CheckDailyReset();
 
-        lock (UsageLock)
+        TelemetrySaveSchedule schedule;
+        lock (LogLock)
         {
-            _settings.TotalPromptTokens += promptTokens;
-            _settings.TotalCompletionTokens += completionTokens;
+            lock (UsageLock)
+            {
+                long usageTokens = (long)promptTokens + completionTokens;
 
-            // Token 預算不看費率：免費、本地與查無費率的請求一樣消耗 token。
-            if (_settings is IDailyTokenBudget tokenLedger)
-            {
-                tokenLedger.DailyAccumulatedTokens += (long)promptTokens + completionTokens;
+                _settings.TotalPromptTokens += promptTokens;
+                _settings.TotalCompletionTokens += completionTokens;
+
+                // Token 預算不看費率：免費、本地與查無費率的請求一樣消耗 token。
+                if (_settings is IDailyTokenBudget tokenLedger)
+                {
+                    tokenLedger.DailyAccumulatedTokens += usageTokens;
+                }
+
+                if (TryEstimateCost(providerId, modelName, promptTokens, completionTokens, cachedPromptTokens, out float cost))
+                {
+                    _settings.TotalEstimatedCost += cost;
+                    _settings.DailyAccumulatedCost += cost;
+                }
+                else
+                {
+                    Interlocked.Increment(ref _unpricedUsageCount);
+                }
             }
 
-            if (TryEstimateCost(providerId, modelName, promptTokens, completionTokens, cachedPromptTokens, out float cost))
+            // 累加特定供應商的 prompt tokens 與 API 快取 tokens 用量。
+            var stats = ProviderStatistics.GetOrAdd(providerId, _ => new ProviderStats());
+            lock (stats)
             {
-                _settings.TotalEstimatedCost += cost;
-                _settings.DailyAccumulatedCost += cost;
+                stats.TotalPromptTokens += promptTokens;
+                stats.CachedPromptTokens += cachedPromptTokens;
             }
-            else
-            {
-                Interlocked.Increment(ref _unpricedUsageCount);
-            }
+
+            schedule = MarkTelemetryDirtyLocked(immediate: false);
         }
 
-        // 累加特定供應商的 prompt tokens 與 API 快取 tokens 用量
-        var stats = ProviderStatistics.GetOrAdd(providerId, _ => new ProviderStats());
-        lock (stats)
-        {
-            stats.TotalPromptTokens += promptTokens;
-            stats.CachedPromptTokens += cachedPromptTokens;
-        }
+        RunTelemetrySaveSchedule(schedule);
     }
 
     /// <summary>
@@ -515,22 +586,27 @@ public class RimLLMUsageTracker
     /// </summary>
     public void ResetUsage()
     {
-        lock (UsageLock)
+        lock (LogLock)
         {
-            _settings.TotalPromptTokens = 0;
-            _settings.TotalCompletionTokens = 0;
-            _settings.TotalEstimatedCost = 0f;
-            Interlocked.Exchange(ref _unpricedUsageCount, 0);
-
-            foreach (var kvp in ProviderStatistics)
+            lock (UsageLock)
             {
-                lock (kvp.Value)
+                _settings.TotalPromptTokens = 0;
+                _settings.TotalCompletionTokens = 0;
+                _settings.TotalEstimatedCost = 0f;
+                Interlocked.Exchange(ref _unpricedUsageCount, 0);
+
+                foreach (var kvp in ProviderStatistics)
                 {
-                    kvp.Value.TotalPromptTokens = 0;
-                    kvp.Value.CachedPromptTokens = 0;
+                    lock (kvp.Value)
+                    {
+                        kvp.Value.TotalPromptTokens = 0;
+                        kvp.Value.CachedPromptTokens = 0;
+                    }
                 }
             }
 
+            _settings.MarkTelemetryDirty();
+            InvalidateDeferredTelemetrySaveLocked();
             try
             {
                 _settings.SaveTelemetry();
@@ -540,6 +616,13 @@ public class RimLLMUsageTracker
                 RimLLMLog.Warning($"[RimLLM] Reset usage telemetry write failed: {ex.Message}");
             }
         }
+    }
+
+    private static void InvalidateDeferredTelemetrySaveLocked()
+    {
+        _lastLogWriteTime = DateTime.UtcNow;
+        _telemetrySaveDeferred = false;
+        _telemetrySaveScheduleVersion++;
     }
 
     /// <summary>
@@ -647,6 +730,138 @@ public class RimLLMUsageTracker
     private string _budgetWarnedDate = "";
 
     /// <summary>
+    /// 原子地檢查預算並保留整個 logical request 的估算 token。每個 fallback/retry attempt
+    /// 的實際用量仍會獨立累加；直到請求成功、失敗、取消或串流結束時 Dispose 才釋放 reservation。
+    /// </summary>
+    internal bool TryReserveBudget(long estimatedTokens, out BudgetReservation reservation)
+    {
+        CheckDailyReset();
+
+        bool overBudget;
+        bool warnOnly;
+        reservation = null;
+        lock (UsageLock)
+        {
+            overBudget = IsBudgetExceededLocked();
+            warnOnly = _settings.BudgetPolicy == BudgetPolicyWarnOnly;
+            if (!overBudget || warnOnly)
+            {
+                IDailyTokenBudget tokenLedger = _settings as IDailyTokenBudget;
+                bool hasTokenLedger = tokenLedger != null;
+                long reservedTokens = hasTokenLedger ? Math.Max(1L, estimatedTokens) : 0L;
+                if (tokenLedger != null && tokenLedger.DailyTokenBudgetLimit > 0)
+                {
+                    // 單筆估算不當成精準上限；保留量最多到達門檻，阻止後續請求
+                    // 共用同一份剩餘額度，實際超出估算的 token 仍會完整記帳。
+                    reservedTokens = Math.Min(reservedTokens, tokenLedger.DailyTokenBudgetLimit);
+                }
+                _reservedBudgetTokens = SaturatingAdd(_reservedBudgetTokens, reservedTokens);
+
+                bool reserveLegacySlot = !hasTokenLedger && _settings.DailyBudgetLimit > 0f;
+                if (reserveLegacySlot && _reservedLegacyBudgetRequests < int.MaxValue)
+                {
+                    _reservedLegacyBudgetRequests++;
+                }
+
+                reservation = new BudgetReservation(this, reservedTokens, reserveLegacySlot);
+            }
+        }
+
+        if (overBudget)
+        {
+            try
+            {
+                WarnBudgetExceeded(
+                    warnOnly ? "RimLLM_BudgetWarnOnlyExceeded" : "RimLLM_BudgetHardBlockExceeded",
+                    warnOnly ? BudgetWarnOnlyFallbackText : BudgetHardBlockFallbackText);
+            }
+            catch
+            {
+                reservation?.Dispose();
+                reservation = null;
+                throw;
+            }
+        }
+
+        return !overBudget || warnOnly;
+    }
+
+    private bool IsBudgetExceededLocked()
+    {
+        if (_settings is IDailyTokenBudget tokenLedger)
+        {
+            long limit = tokenLedger.DailyTokenBudgetLimit;
+            if (limit <= 0) return false;
+
+            long accumulated = Math.Max(0, tokenLedger.DailyAccumulatedTokens);
+            return accumulated >= limit || _reservedBudgetTokens >= limit - accumulated;
+        }
+
+        // 舊版外部設定只有美元帳本，沒有可供估算的 token 上限；保守地一次放行一個
+        // 在途請求，待其美元用量結算後再讓下一個請求檢查，維持既有門檻語意。
+        return _settings.DailyBudgetLimit > 0f &&
+               (_settings.DailyAccumulatedCost >= _settings.DailyBudgetLimit || _reservedLegacyBudgetRequests > 0);
+    }
+
+    private static long SaturatingAdd(long left, long right)
+    {
+        return right > 0 && left > long.MaxValue - right ? long.MaxValue : left + right;
+    }
+
+    private void ReleaseBudgetReservation(BudgetReservation reservation)
+    {
+        lock (UsageLock)
+        {
+            if (!reservation.TryReleaseAllLocked(out long released)) return;
+            _reservedBudgetTokens = Math.Max(0, _reservedBudgetTokens - released);
+            if (reservation.HasLegacySlot && _reservedLegacyBudgetRequests > 0)
+            {
+                _reservedLegacyBudgetRequests--;
+            }
+        }
+    }
+
+    internal sealed class BudgetReservation : IDisposable
+    {
+        private readonly bool _hasLegacySlot;
+        private readonly long _reservedTokens;
+        private bool _disposed;
+
+        internal RimLLMUsageTracker Tracker { get; }
+        internal bool HasLegacySlot => _hasLegacySlot;
+
+        internal BudgetReservation(RimLLMUsageTracker tracker, long reservedTokens, bool hasLegacySlot)
+        {
+            Tracker = tracker;
+            _reservedTokens = reservedTokens;
+            _hasLegacySlot = hasLegacySlot;
+        }
+
+        internal void RecordUsage(string providerId, string modelName, int promptTokens, int completionTokens, int cachedPromptTokens = 0)
+        {
+            Tracker.RecordUsage(providerId, modelName, promptTokens, completionTokens, cachedPromptTokens);
+        }
+
+        internal bool TryReleaseAllLocked(out long released)
+        {
+            if (_disposed)
+            {
+                released = 0;
+                return false;
+            }
+
+            _disposed = true;
+            released = _reservedTokens;
+            return true;
+        }
+
+        public void Dispose()
+        {
+            Tracker.ReleaseBudgetReservation(this);
+        }
+    }
+
+    /// <summary>
     /// 審查每日預算限額（輸入＋輸出 token 合計）。上限為 0 代表無限制。
     /// </summary>
     /// <remarks>
@@ -657,12 +872,13 @@ public class RimLLMUsageTracker
     {
         CheckDailyReset();
 
-        bool overBudget = _settings is IDailyTokenBudget tokenLedger
-            ? tokenLedger.DailyTokenBudgetLimit > 0
-                && tokenLedger.DailyAccumulatedTokens >= tokenLedger.DailyTokenBudgetLimit
-            // 外部自行實作的設定沒有 token 帳本，退回舊版美元門檻。
-            : _settings.DailyBudgetLimit > 0f
-                && _settings.DailyAccumulatedCost >= _settings.DailyBudgetLimit;
+        bool overBudget;
+        bool warnOnly;
+        lock (UsageLock)
+        {
+            overBudget = IsBudgetExceededLocked();
+            warnOnly = _settings.BudgetPolicy == BudgetPolicyWarnOnly;
+        }
 
         if (!overBudget)
         {
@@ -670,7 +886,7 @@ public class RimLLMUsageTracker
         }
 
         // 0=HardBlock, 1=WarnOnly
-        if (_settings.BudgetPolicy == BudgetPolicyWarnOnly)
+        if (warnOnly)
         {
             WarnBudgetExceeded("RimLLM_BudgetWarnOnlyExceeded", BudgetWarnOnlyFallbackText);
             return true;

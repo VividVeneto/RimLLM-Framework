@@ -85,6 +85,28 @@ public class OpenAIProvider : ILLMProvider
         return new OpenAIChatClientAdapter(rawClient, this, model);
     }
 
+    private static RimLLMException MapClientResultException(ClientResultException exception)
+    {
+        TimeSpan? retryAfter = null;
+        try
+        {
+            if (exception.GetRawResponse()?.Headers.TryGetValue("Retry-After", out string value) == true)
+            {
+                retryAfter = LLMErrorMapper.ParseRetryAfter(value);
+            }
+        }
+        catch
+        {
+            // 無法讀取或解析 Retry-After 時，沿用一般重試延遲。
+        }
+
+        return LLMErrorMapper.CreateException(
+            exception.Status,
+            exception.Message,
+            retryAfter,
+            exception);
+    }
+
     public static IChatClient CreateOpenAiChatClient(string apiKey, string model, string endpoint = null)
     {
         if (string.IsNullOrWhiteSpace(apiKey))
@@ -398,12 +420,19 @@ public class OpenAIProvider : ILLMProvider
             }
             catch (ClientResultException ex)
             {
-                var mapped = LLMErrorMapper.CreateException(ex.Status, ex.Message, innerException: ex);
+                var mapped = MapClientResultException(ex);
                 if (_provider.MarkUnsupportedParameters(_model, mapped, targetOptions))
                 {
                     var retryOptions = options?.Clone() ?? new ChatOptions();
                     _provider.BuildChatOptions(options, _model, retryOptions);
-                    response = await base.GetResponseAsync(messages, retryOptions, cancellationToken).ConfigureAwait(false);
+                    try
+                    {
+                        response = await base.GetResponseAsync(messages, retryOptions, cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (ClientResultException retryException)
+                    {
+                        throw MapClientResultException(retryException);
+                    }
                 }
                 else
                 {
@@ -488,7 +517,10 @@ public class OpenAIProvider : ILLMProvider
         private readonly OpenAIProvider _provider;
         private readonly string _model;
         private readonly System.Threading.CancellationToken _cancellationToken;
+        private readonly bool _isExecutorManaged;
         private bool _hasYieldedAny;
+        private UsageDetails _lastUsage;
+        private bool _usageRecorded;
 
         public OpenAiStreamEnumerator(
             Func<ChatOptions, System.Threading.CancellationToken, IAsyncEnumerable<ChatResponseUpdate>> streamFactory,
@@ -506,39 +538,99 @@ public class OpenAIProvider : ILLMProvider
             _provider = provider;
             _model = model;
             _cancellationToken = cancellationToken;
+            _isExecutorManaged = RimLLMChatOptions.ReadAdditional(
+                originalOptions,
+                RimLLMChatOptions.ExecutorManagedKey,
+                false);
         }
 
         public ChatResponseUpdate Current => _inner.Current;
 
         public async ValueTask<bool> MoveNextAsync()
         {
-            while (true)
+            try
             {
-                try
+                while (true)
                 {
-                    bool hasNext = await _inner.MoveNextAsync().ConfigureAwait(false);
-                    if (hasNext)
+                    try
                     {
-                        _hasYieldedAny = true;
+                        bool hasNext = await _inner.MoveNextAsync().ConfigureAwait(false);
+                        if (hasNext)
+                        {
+                            _hasYieldedAny = true;
+                            CaptureUsage(_inner.Current);
+                        }
+                        return hasNext;
                     }
-                    return hasNext;
-                }
-                catch (ClientResultException ex)
-                {
-                    var mapped = LLMErrorMapper.CreateException(ex.Status, ex.Message, innerException: ex);
-                    if (!_hasYieldedAny && _provider.MarkUnsupportedParameters(_model, mapped, _sentOptions))
+                    catch (ClientResultException ex)
                     {
-                        // 尚未產出任何分塊且為可自癒參數（如思考強度/格式），在此請求中就地重試
-                        await _inner.DisposeAsync().ConfigureAwait(false);
-                        var retryOptions = _originalOptions?.Clone() ?? new ChatOptions();
-                        _provider.BuildChatOptions(_originalOptions, _model, retryOptions);
-                        _sentOptions = retryOptions;
-                        _inner = _streamFactory(retryOptions, _cancellationToken).GetAsyncEnumerator(_cancellationToken);
-                        continue;
+                        var mapped = MapClientResultException(ex);
+                        if (!_hasYieldedAny && _provider.MarkUnsupportedParameters(_model, mapped, _sentOptions))
+                        {
+                            // 尚未產出任何分塊且為可自癒參數（如思考強度/格式），在此請求中就地重試
+                            await _inner.DisposeAsync().ConfigureAwait(false);
+                            var retryOptions = _originalOptions?.Clone() ?? new ChatOptions();
+                            _provider.BuildChatOptions(_originalOptions, _model, retryOptions);
+                            _sentOptions = retryOptions;
+                            _inner = _streamFactory(retryOptions, _cancellationToken).GetAsyncEnumerator(_cancellationToken);
+                            continue;
+                        }
+                        throw mapped;
                     }
-                    throw mapped;
                 }
             }
+            finally
+            {
+                // 若 provider 在正常結束、中斷或取消前已回報用量，皆只結算一次。
+                RecordUsageIfNeeded();
+            }
+        }
+
+        private void CaptureUsage(ChatResponseUpdate update)
+        {
+            if (update?.Contents == null) return;
+
+            foreach (AIContent content in update.Contents)
+            {
+                if (content is UsageContent usage && usage.Details != null)
+                {
+                    _lastUsage = usage.Details;
+                }
+            }
+        }
+
+        private void RecordUsageIfNeeded()
+        {
+            if (_usageRecorded || _isExecutorManaged || _lastUsage == null ||
+                (!_lastUsage.InputTokenCount.HasValue && !_lastUsage.OutputTokenCount.HasValue))
+            {
+                return;
+            }
+
+            _usageRecorded = true;
+            try
+            {
+                var manager = RimLLMProvider.Manager;
+                if (manager != null)
+                {
+                    manager.RecordUsage(
+                        _provider.ProviderId,
+                        _model,
+                        ToTokenCount(_lastUsage.InputTokenCount),
+                        ToTokenCount(_lastUsage.OutputTokenCount),
+                        ToTokenCount(_lastUsage.CachedInputTokenCount));
+                }
+            }
+            catch (InvalidOperationException)
+            {
+                // Manager 尚未初始化時，串流回應仍照常交給呼叫端。
+            }
+        }
+
+        private static int ToTokenCount(long? count)
+        {
+            if (!count.HasValue || count.Value <= 0) return 0;
+            return count.Value >= int.MaxValue ? int.MaxValue : (int)count.Value;
         }
 
         public ValueTask DisposeAsync()

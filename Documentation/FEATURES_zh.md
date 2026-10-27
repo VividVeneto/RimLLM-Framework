@@ -1,5 +1,7 @@
 # RimLLM Framework —— 功能特色
 
+> Gemini 對話可選原生 REST 或 /openai 相容模式；原生文字模式不提供工具與圖片。具體設定與範圍見 [Gemini 原生 API 說明](GEMINI_NATIVE.md)。
+
 [← 回到 README](../README_zh.md) · [English](FEATURES.md)
 
 各項功能的詳細行為與設計理由。SDK 用法請見 README。
@@ -74,7 +76,7 @@
         * **Jev SDK 只接受 HTTPS origin**（`ClientSettings.ValidateBaseAddress` 會拒絕其他 scheme），但本機服務講的是明文 HTTP。`DecisionEndpointRouting` 把兩者接起來：交給 SDK 一個同 host 與 port 的 HTTPS origin，`PlaintextEndpointRewriteHandler` 再於請求送上線前改寫回玩家設定的明文端點。因此本機服務收到的就是一般的明文 HTTP，不需要代理、隧道或憑證。改寫只動請求 URI，SDK 自己的請求編碼與回應解碼完全沿用。
         * 明文 HTTP 代表請求在送往服務的途中沒有加密。設定頁會在端點欄位旁說明這點；遠端供應商不受影響，仍然要求 HTTPS。
 12. **原生 Tool Calling（函式呼叫）**
-    * 完整支援 Microsoft.Extensions.AI Tool Calling 標準（`AIFunction`、`ChatOptions.Tools`、`FunctionCallContent`、`FunctionResultContent`），所有供應商經共用的 OpenAI 協定路徑提供。
+    * 完整支援 Microsoft.Extensions.AI Tool Calling 標準（`AIFunction`、`ChatOptions.Tools`、`FunctionCallContent`、`FunctionResultContent`），支援工具呼叫的供應商經共用的 OpenAI 相容協定路徑提供；Gemini 原生文字模式不提供工具呼叫。
     * 提供 `RimWorldFunctionInvoker.AsMainThreadFunctionInvokingClient()`，自動將工具叫用委派排入 Unity 主執行緒執行，杜絕 RimWorld 跨執行緒崩潰風險。
     * 工具還在佇列等待時取消，會結束等待且不啟動該工具；已開始的工具須自行配合取消 token，取消不會撤銷已完成的副作用。
 13. **第三方整合（強制其他 Mod 改走 RimLLM）**

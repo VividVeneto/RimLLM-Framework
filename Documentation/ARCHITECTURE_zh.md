@@ -1,5 +1,7 @@
 # RimLLM Framework —— 架構、安全性與測試
 
+> Gemini 對話可選原生 REST 或 /openai 相容模式；原生文字模式不提供工具與圖片。具體設定與範圍見 [Gemini 原生 API 說明](GEMINI_NATIVE.md)。
+
 [← 回到 README](../README_zh.md) · [English](ARCHITECTURE.md)
 
 ## 🛠️ 架構設計
@@ -40,13 +42,13 @@
 ### 5. 容錯的結構化輸出（structured output 與 JSON repair）
 
 * 開發者經常需要模型回傳特定的 JSON 結構。
-* 內建供應商優先使用官方 SDK 的原生結構化輸出，經 `IChatClient` 的 JSON Schema response format 送出（Gemini 經其 OpenAI 相容端點同樣適用）。框架依序列化契約產生的 Schema 形狀檢查 JSON 必填成員是否存在與可空性，包含字典的值，不以反序列化後的 CLR 預設值推斷完整性；忽略或未參與契約的成員不視為必要輸出。
+* 內建供應商優先使用官方 SDK 的原生結構化輸出，經 `IChatClient` 的 JSON Schema response format 送出（Gemini 可使用相容 SDK 端點或原生 responseJsonSchema）。框架依序列化契約產生的 Schema 形狀檢查 JSON 必填成員是否存在與可空性，包含字典的值，不以反序列化後的 CLR 預設值推斷完整性；忽略或未參與契約的成員不視為必要輸出。
 * schema 本身只有一種 OpenAI 相容方言 —— 所有成員都列入 `required`，選填性以 `["integer","null"]` 聯集表達。詳見[架構設計 §6](#6-官方-sdk-與供應商職責)。
 * `RepairJson` 回退機制僅在供應商不支援原生 Schema、服務拒絕 Schema，或模型仍回傳格式錯誤內容時啟用。它處理 Markdown 圍籬（如 ` ```json `）、未閉合括號、尾隨逗號與 JSON 區塊擷取。修復時區分 JSON 語法與引號內的字串，保留字串中的逗號、括號及 `<think>…</think>` 原文。
 
 ### 6. 官方 SDK 與供應商職責
 
-* **所有供應商共用一套 SDK。** 內建供應商全都走 `OpenAI` SDK `2.14.0` 與 Microsoft.Extensions.AI `10.10.0` 的 `IChatClient`，沒有直接打 HTTP 的對話路徑，也沒有第二套 SDK。Gemini 走 Google 官方的 OpenAI 相容端點。共用層只依賴 `IChatClient`、`LLMProviderCapabilities` 與 `ILLMProvider`。
+* **共用對話介面，Gemini 支援兩種傳輸。** OpenAI 相容供應商沿用 `OpenAI` SDK `2.14.0`。Gemini 的 `/openai` 端點保留這條 SDK 路徑，原生 Base URL 則使用 .NET 10 HTTP 文字／JSON／SSE 適配器；兩者都提供 Microsoft.Extensions.AI `10.10.0` 介面。共用層只依賴 `IChatClient`、`LLMProviderCapabilities` 與 `ILLMProvider`。
 * **僅支援 RimWorld 1.7／.NET 10。** 三個專案統一使用 `net10.0`，SDK 與 MEAI 透過正常 NuGet 資產選擇載入。
 * **MEAI.Abstractions 使用 .NET 10 資產。** 不再強制 netstandard 資產或隨包附帶舊 BCL；`ShippedAssembliesTargetNet10` 驗證正式產物。
 * **結構化輸出的 schema** 由 `System.Text.Json` 的 `JsonSchemaExporter` 產生，再由 `RimLLMSchemaBuilder` 正規化成每家供應商都接受的子集：`$ref` 展開成內嵌（循環在 CLR 型別層級截斷）、巢狀最多 5 層（OpenAI strict 模式的上限；總共 100 個屬性的上限尚未檢查）、所有成員都列入 `required`，選填性以 `["type","null"]` 聯集表達，並保留 `[Description]`。Nullable 值型別作為集合元素或字典值時，也會保留相同的可空聯集。

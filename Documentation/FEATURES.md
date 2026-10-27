@@ -1,5 +1,7 @@
 # RimLLM Framework — Features
 
+> Gemini chat supports native REST or /openai compatibility mode. The native text adapter does not expose tools or images. See [Gemini native setup](GEMINI_NATIVE.md).
+
 [← Back to README](../README.md) · [繁體中文](FEATURES_zh.md)
 
 The detailed behavior of each feature, and the reasons behind it. For SDK usage, see the README.
@@ -74,7 +76,7 @@ Supports **RimWorld 1.7 / .NET 10 only**; consuming mods must rebuild for `net10
         * **The Jev SDK only accepts HTTPS origins** (`ClientSettings.ValidateBaseAddress` rejects any other scheme), while a local server speaks plain HTTP. `DecisionEndpointRouting` bridges the two: the SDK is handed an HTTPS origin of the same host and port, and `PlaintextEndpointRewriteHandler` rewrites the request back to the configured plaintext endpoint before it reaches the socket. The local server therefore sees ordinary plain HTTP, with no proxy, tunnel or certificate involved. The rewrite is scoped to the request URI, so the SDK's own request encoding and response decoding are reused unchanged.
         * Plain HTTP means the request is not encrypted on the way to the server. The settings page says so next to the endpoint field; the remote providers are unaffected and keep requiring HTTPS.
 12. **Native Tool Calling (Function Calling)**
-    * Full support for Microsoft.Extensions.AI Tool Calling (`AIFunction`, `ChatOptions.Tools`, `FunctionCallContent`, `FunctionResultContent`) on every provider through the shared OpenAI-protocol path.
+    * Full support for Microsoft.Extensions.AI Tool Calling (`AIFunction`, `ChatOptions.Tools`, `FunctionCallContent`, `FunctionResultContent`) on providers with function-calling capability through the shared OpenAI-compatible path. Gemini native text mode does not expose tools.
     * Main-thread safety scheduling via `RimWorldFunctionInvoker.AsMainThreadFunctionInvokingClient()`, automatically dispatching tool execution onto the Unity main thread to prevent RimWorld threading crashes.
     * Canceling while a tool is queued completes the wait without starting that tool. A tool that has already started must cooperate with its cancellation token; cancellation does not undo completed side effects.
 13. **Third-party integration (force other mods through RimLLM)**

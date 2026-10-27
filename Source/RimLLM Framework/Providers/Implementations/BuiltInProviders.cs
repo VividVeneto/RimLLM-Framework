@@ -3,17 +3,17 @@ using System.Collections.Generic;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.AI;
 using RimLLM_Framework.Core;
 using RimLLM_Framework.Manager;
 
 namespace RimLLM_Framework.Providers;
 
 /// <summary>
-/// Google Gemini API 供應商，經由官方 OpenAI 相容端點存取。
-/// 對話、串流、工具呼叫、結構化輸出、思考強度（<c>reasoning_effort</c>）與模型清單
-/// 全由基底 <see cref="OpenAIProvider"/> 經 OpenAI SDK 處理，不再使用原生 Google.GenAI 路徑。
-/// 既有的供應商識別碼、API 金鑰與模型設定沿用不變。
-/// 唯一例外是上下文上限：相容端點不回報，重新整理模型清單時另向原生 <c>/models</c> 讀取。
+/// Google Gemini 供應商：保留官方 OpenAI 相容模式，並支援自訂 Gemini 原生 REST 端點。
+/// 預設 /openai 端點沿用 OpenAI SDK 的工具、圖片與結構化輸出功能。
+/// 自訂 /v1beta 等原生端點則使用文字／JSON／SSE 適配器，不需要中轉服務實作 OpenAI 協定。
+/// 供應商識別碼與設定沿用不變，模型清單依目前選用的協定取得。
 /// </summary>
 public class GeminiProvider : OpenAIProvider
 {
@@ -22,12 +22,99 @@ public class GeminiProvider : OpenAIProvider
     {
     }
 
+    internal const string CompatibleEndpoint = "https://generativelanguage.googleapis.com/v1beta/openai";
+
+    // Existing /openai configurations retain the 1.7 SDK path, including tools and images.
+    // A Gemini native base URL such as /v1beta selects the native text/JSON/SSE adapter.
+    private bool UsesNativeEndpoint => !(NormalizeEndpoint(Settings.GetEndpoint(ProviderId, DefaultEndpoint))
+        ?.EndsWith("/openai", StringComparison.OrdinalIgnoreCase) ?? false);
+
+    private readonly LLMProviderCapabilities _nativeCapabilities = new()
+    {
+        SupportsNativeStructuredOutput = true,
+        SupportsStreaming = true,
+        SupportsUsageMetadata = true,
+        SupportsFunctionCalling = false
+    };
+
+    public override LLMProviderCapabilities Capabilities => UsesNativeEndpoint ? _nativeCapabilities : base.Capabilities;
+    protected override string DefaultTestModel => UsesNativeEndpoint ? "default" : base.DefaultTestModel;
+
+    public override IChatClient CreateChatClient(string model)
+    {
+        if (!UsesNativeEndpoint) return base.CreateChatClient(model);
+        var native = new GeminiNativeChatClient(Settings.GetActiveApiKey(ProviderId), model,
+            Settings.GetEndpoint(ProviderId, DefaultEndpoint), Settings.ApiTimeout);
+        return new OpenAIChatClientAdapter(native, this, model);
+    }
+
+    protected override void BuildChatOptions(ChatOptions requestOptions, string model, ChatOptions options)
+    {
+        // Native clients consume the cloned MEAI options directly, without SDK-specific JSON patches.
+        if (!UsesNativeEndpoint) base.BuildChatOptions(requestOptions, model, options);
+    }
+
+    public override async Task<TestResult> TestConnectionAsync()
+    {
+        if (!UsesNativeEndpoint) return await base.TestConnectionAsync().ConfigureAwait(false);
+        if (!string.IsNullOrEmpty(Settings.GetActiveApiKey(ProviderId)) && Settings.GetModelList(ProviderId).Count == 0)
+        {
+            try
+            {
+                List<string> models = await FetchAvailableModelsAsync().ConfigureAwait(false);
+                if (models.Count == 0) return new TestResult { Provider = ProviderId, Success = false,
+                    ErrorCode = LLMError.ModelNotFound, ErrorMessage = "The Gemini endpoint exposes no text-generation models." };
+                Settings.SetModelList(ProviderId, models);
+            }
+            catch (RimLLMException ex)
+            {
+                return new TestResult { Provider = ProviderId, Success = false, ErrorCode = ex.Error, ErrorMessage = ex.Message };
+            }
+            catch (Exception ex)
+            {
+                return new TestResult { Provider = ProviderId, Success = false,
+                    ErrorCode = LLMError.NetworkError, ErrorMessage = "Could not fetch Gemini models: " + ex.Message };
+            }
+        }
+        return await base.TestConnectionAsync().ConfigureAwait(false);
+    }
+
+    private async Task<ModelCatalog> FetchNativeModelCatalogAsync()
+    {
+        string root = GeminiNativeChatClient.NormalizeEndpoint(Settings.GetEndpoint(ProviderId, DefaultEndpoint));
+        var models = new List<string>();
+        var windows = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(Settings.ApiTimeout > 0 ? Settings.ApiTimeout : 30f)))
+        {
+            bool valid = await RimLLMEmbeddingService.ForEachGoogleNativeModelAsync(root,
+                Settings.GetActiveApiKey(ProviderId), model =>
+                {
+                    if (model.TryGetProperty("supportedGenerationMethods", out JsonElement methods))
+                    {
+                        bool chat = false;
+                        foreach (JsonElement method in methods.EnumerateArray())
+                            if (method.GetString() == "generateContent") chat = true;
+                        if (!chat) return;
+                    }
+                    if (!model.TryGetProperty("name", out JsonElement nameElement)) return;
+                    string name = nameElement.GetString();
+                    if (string.IsNullOrEmpty(name)) return;
+                    if (name.StartsWith("models/", StringComparison.Ordinal)) name = name.Substring(7);
+                    if (!models.Contains(name)) models.Add(name);
+                    ReadInputTokenLimit(model, windows);
+                }, cts.Token).ConfigureAwait(false);
+            if (!valid) throw new RimLLMException(LLMError.InvalidResponse, "Gemini model list is missing the models array.");
+        }
+        return new ModelCatalog(models, windows);
+    }
+
     /// <summary>
     /// 相容端點的 /models 不回報上限，改向原生 <c>/models</c> 讀 <c>inputTokenLimit</c>。
     /// 兩個請求彼此獨立，同時發出。上限只是附帶資訊：原生端點失敗時模型清單照常回傳。
     /// </summary>
     internal override async Task<ModelCatalog> FetchModelCatalogAsync()
     {
+        if (UsesNativeEndpoint) return await FetchNativeModelCatalogAsync().ConfigureAwait(false);
         Task<Dictionary<string, int>> nativeTask = FetchNativeInputTokenLimitsAsync();
         ModelCatalog catalog = await base.FetchModelCatalogAsync().ConfigureAwait(false);
         Dictionary<string, int> windows = await nativeTask.ConfigureAwait(false);

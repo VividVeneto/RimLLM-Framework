@@ -68,7 +68,7 @@ public static class GenericProviderSubTabDrawer
         {
             string defaultEndpoint = providerId == ProviderIds.Player2
                 ? Player2Provider.LocalDefaultEndpoint
-                : "http://localhost:1234/v1";
+                : providerId == ProviderIds.Gemini ? GeminiProvider.CompatibleEndpoint : "http://localhost:1234/v1";
             string endpoint = Settings.GetEndpoint(providerId, defaultEndpoint);
             listing.Label("RimLLM_ApiEndpoint".Translate());
             endpoint = listing.TextEntry(endpoint);

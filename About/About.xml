@@ -3,11 +3,13 @@
   <name>RimLLM Framework</name>
   <author>綠菇</author>
   <packageId>GreenMushroom.RimLLMFramework</packageId>
-  <modVersion>2026.10.23.1</modVersion>
+  <modVersion>2026.10.27.2</modVersion>
   <supportedVersions>
     <li>1.7</li>
   </supportedVersions>
   <description><![CDATA[RimLLM Framework — A unified LLM interface and core infrastructure framework for RimWorld.
+
+Gemini native API update: configure a native /v1beta base URL for text, JSON Schema and SSE streaming. The default /openai endpoint retains the existing SDK, tools and image support. Requires RimWorld 1.7 / .NET 10.
 
 This mod provides a stable and flexible foundation for managing API keys, model caching, and provider configuration, so other mods don't have to reinvent the wheel. It enables seamless integration with major LLM services (Gemini, OpenAI, local-compatible endpoints, and more), improving stability and maintainability of in-game LLM calls.
 

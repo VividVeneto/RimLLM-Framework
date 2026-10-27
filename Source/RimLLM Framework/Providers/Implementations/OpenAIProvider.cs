@@ -471,7 +471,7 @@ public class OpenAIProvider : ILLMProvider
             System.Threading.CancellationToken cancellationToken = default)
         {
             return new OpenAiStreamEnumerable(
-                (opts, ct) => base.GetStreamingResponseAsync(messages, opts, ct),
+                (opts, ct) => base.GetStreamingResponseAsync(messages, opts, cancellationToken),
                 options,
                 _provider,
                 _model);

@@ -1,5 +1,7 @@
 # RimLLM Framework
 
+> **RimWorld 1.7 / .NET 10 的 Gemini 原生 API 支援。** 在 Gemini 設定中填入原生 `/v1beta` Base URL 即可使用文字、JSON Schema 與 SSE；預設 `/openai` 位址保留既有 SDK 功能。詳見[設定、1.6 版本比較與驗證說明](Documentation/GEMINI_NATIVE.md)。
+
 [![RimWorld 1.7](https://img.shields.io/badge/RimWorld-1.7-brightgreen.svg)](http://rimworldgame.com/)
 ![Languages](https://img.shields.io/badge/languages-EN%20%7C%20繁中%20%7C%20简中-orange.svg)
 
@@ -164,7 +166,7 @@ PawnIncidentDecision decision = await client.GetResponseObjectAsync<PawnIncident
 
 ### 原生 Tool Calling（函式呼叫）
 
-RimLLM Framework 原生支援 Microsoft.Extensions.AI 的 Tool Calling（`AIFunction`、`ChatOptions.Tools`、`FunctionCallContent`）。所有內建供應商都走 OpenAI 協定，工具定義與呼叫只有一種 wire 形狀。`AIFunctionFactory.Create` 使用 MEAI 的 .NET 10 資產與遊戲內建的 System.Text.Json；詳見[架構設計](Documentation/ARCHITECTURE_zh.md)。
+RimLLM Framework 原生支援 Microsoft.Extensions.AI 的 Tool Calling（`AIFunction`、`ChatOptions.Tools`、`FunctionCallContent`）。支援工具呼叫的供應商使用 OpenAI 相容協定，工具定義與呼叫只有一種 wire 形狀。`AIFunctionFactory.Create` 使用 MEAI 的 .NET 10 資產與遊戲內建的 System.Text.Json；詳見[架構設計](Documentation/ARCHITECTURE_zh.md)。
 
 #### 1. 自動迴圈執行模式（推薦，內建 Unity 主執行緒安全調度）
 
@@ -204,7 +206,7 @@ Log.Message(response.Text);
 * **防濫用節流以外層請求計數，不以迴圈輪次計數。** 每個 Mod 的節流（預設 10 秒內 10 次，超過冷卻 60 秒）看得到 `FunctionInvokingChatClient` 發出的每一次呼叫，但最後一則訊息是 `ChatRole.Tool` 工具結果的呼叫會被視為「啟動這個迴圈的那個請求」的延續，不計入時間視窗。已在冷卻中的 Mod 仍然會被擋，續輪也不例外。判定靠訊息形狀，因此直接用 MEAI 自己的 `FunctionInvokingChatClient` 也適用。
 * **送出前先確認工具到得了模型。** 不支援原生函式呼叫的供應商會在呼叫前把請求的 `Tools` 移除。`RimLLMProvider.GetEffectiveCapabilities()` 回傳目前備援鏈可能路由到的所有候選能力的**交集** —— 那裡的 `SupportsFunctionCalling` 為 `true`，就沒有任何候選會丟掉你的工具。傳入與 `ChatOptions.ModelId` 相同格式的 `"Provider:Model"` 字串可以縮小範圍。
 * **工具仍被丟掉時，回應會告訴你。** `response.WereToolsStripped()`（串流的每個 `ChatResponseUpdate` 也有同名方法）為 `true` 代表實際回答的供應商根本沒看過工具定義。這和「模型決定不呼叫工具」是兩回事，要分開處理。
-* **fallback 可能在迴圈中途換供應商。** 每一輪都是獨立請求，第 3 輪可能由第 1 輪之外的供應商回答，歷史裡帶著前一家產生的 `tool_call_id`。所有內建供應商都走 OpenAI 協議，因此可以互通；若你的邏輯依賴實際回答的模型，檢查 `response.ModelId`（`"Provider:Model"`）。
+* **fallback 可能在迴圈中途換供應商。** 每一輪都是獨立請求，第 3 輪可能由第 1 輪之外的供應商回答，歷史裡帶著前一家產生的 `tool_call_id`。支援工具呼叫的供應商使用 OpenAI 相容協議，因此可以互通；若你的邏輯依賴實際回答的模型，檢查 `response.ModelId`（`"Provider:Model"`）。
 * **框架不保存任何對話狀態。** 歷史、上下文修剪與 token 預算都由呼叫端負責；框架只負責把溢位對應成 `LLMError.ContextWindowExceeded`。
 
 ### Embedding 向量

@@ -1,5 +1,7 @@
 # RimLLM Framework
 
+> **Gemini native API support for RimWorld 1.7 / .NET 10.** Set Gemini's endpoint to a native `/v1beta` base URL for text, JSON Schema and SSE. The default `/openai` endpoint preserves the existing SDK features. See [configuration, 1.6 comparison and validation](Documentation/GEMINI_NATIVE.md).
+
 [![RimWorld 1.7](https://img.shields.io/badge/RimWorld-1.7-brightgreen.svg)](http://rimworldgame.com/)
 ![Languages](https://img.shields.io/badge/languages-EN%20%7C%20繁中%20%7C%20简中-orange.svg)
 
@@ -166,7 +168,7 @@ PawnIncidentDecision decision = await client.GetResponseObjectAsync<PawnIncident
 
 ### Native Tool Calling (Function Calling)
 
-RimLLM Framework provides native support for Microsoft.Extensions.AI Tool Calling (`AIFunction`, `ChatOptions.Tools`, `FunctionCallContent`). Every built-in provider speaks the OpenAI protocol, so tool definitions and calls use one wire shape everywhere. `AIFunctionFactory.Create` uses the .NET 10 MEAI assets and the game-provided System.Text.Json; see [Architecture](Documentation/ARCHITECTURE.md).
+RimLLM Framework provides native support for Microsoft.Extensions.AI Tool Calling (`AIFunction`, `ChatOptions.Tools`, `FunctionCallContent`). Providers with function-calling support use the OpenAI-compatible protocol, so tool definitions and calls use one wire shape everywhere. `AIFunctionFactory.Create` uses the .NET 10 MEAI assets and the game-provided System.Text.Json; see [Architecture](Documentation/ARCHITECTURE.md).
 
 #### 1. Auto-Invoking Mode with Unity Main-Thread Safety (Recommended)
 
@@ -206,7 +208,7 @@ Things that matter once a request turns into a multi-turn tool loop:
 * **Anti-abuse throttling counts outer requests, not loop iterations.** The per-mod throttle (default 10 requests per 10 s, then a 60 s cooldown) sees every call the `FunctionInvokingChatClient` makes, but a call whose last message is a `ChatRole.Tool` result is treated as a continuation of the request that started the loop and is not counted toward the window. A mod that is already in cooldown is still blocked, continuations included. The rule keys on message shape, so it applies equally to MEAI's own `FunctionInvokingChatClient`.
 * **Check up front whether tools will reach the model.** A provider without native function calling has the request's `Tools` removed before the call. `RimLLMProvider.GetEffectiveCapabilities()` returns the intersection of the capabilities of every candidate the current fallback chain could route to — if `SupportsFunctionCalling` is `true` there, no candidate can drop your tools. Pass the same `"Provider:Model"` string you would put in `ChatOptions.ModelId` to narrow it.
 * **When tools were dropped anyway, the response says so.** `response.WereToolsStripped()` (and the same method on every `ChatResponseUpdate` of a stream) is `true` when the answering provider never saw the tool definitions. Treat that differently from a model that chose not to call a tool.
-* **Fallback can change providers between iterations.** Each iteration is its own request, so iteration 3 may be answered by a different provider than iteration 1, carrying the earlier provider's `tool_call_id`s in the history. Every built-in provider speaks the OpenAI protocol, so this round-trips; check `response.ModelId` (`"Provider:Model"`) if your logic depends on which model is answering.
+* **Fallback can change providers between iterations.** Each iteration is its own request, so iteration 3 may be answered by a different provider than iteration 1, carrying the earlier provider's `tool_call_id`s in the history. Providers with function-calling support use the OpenAI-compatible protocol, so this round-trips; check `response.ModelId` (`"Provider:Model"`) if your logic depends on which model is answering.
 * **The framework keeps no conversation state.** History, context-window trimming and token budgeting are the caller's job; the framework only maps an overflow to `LLMError.ContextWindowExceeded`.
 
 ### Embeddings

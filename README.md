@@ -1,5 +1,7 @@
 # RimLLM Framework
 
+> **Gemini native API branch for RimWorld 1.6.** This fork adds configurable Gemini REST endpoints, text/JSON Schema generation and incremental SSE for RimTalk, with a prebuilt DLL. It is based on upstream `2026.10.11.2`; the fork build is `2026.10.27.1`. Native Gemini images and function calling are outside this minimal patch. See [setup and validation](Documentation/GEMINI_NATIVE.md).
+
 [![RimWorld 1.6](https://img.shields.io/badge/RimWorld-1.6-brightgreen.svg)](http://rimworldgame.com/)
 ![Languages](https://img.shields.io/badge/languages-EN%20%7C%20繁中%20%7C%20简中-orange.svg)
 

@@ -72,7 +72,9 @@ namespace RimLLM_Framework.Mod
             {
                 string defaultEndpoint = providerId == ProviderIds.Player2
                     ? Player2Provider.LocalDefaultEndpoint
-                    : "http://localhost:1234/v1";
+                    : providerId == ProviderIds.Gemini
+                        ? GeminiNativeChatClient.DefaultEndpoint
+                        : "http://localhost:1234/v1";
                 string endpoint = Settings.GetEndpoint(providerId, defaultEndpoint);
                 listing.Label("RimLLM_ApiEndpoint".Translate());
                 endpoint = listing.TextEntry(endpoint);

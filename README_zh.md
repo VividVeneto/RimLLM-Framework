@@ -1,5 +1,7 @@
 # RimLLM Framework
 
+> **RimWorld 1.6 專用 Gemini 原生 API 分支。** 此 fork 支援自訂 Gemini REST 中轉端點、文字／JSON Schema 與逐段 SSE，包含可直接安裝的 DLL。基於上游 `2026.10.11.2`，本地修改版標記為 `2026.10.27.1`。這個最小補丁不包含原生圖片輸入及工具呼叫。請先閱讀[設定與驗證說明](Documentation/GEMINI_NATIVE.md)。
+
 [![RimWorld 1.6](https://img.shields.io/badge/RimWorld-1.6-brightgreen.svg)](http://rimworldgame.com/)
 ![Languages](https://img.shields.io/badge/languages-EN%20%7C%20繁中%20%7C%20简中-orange.svg)
 

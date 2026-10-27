@@ -3,63 +3,93 @@ using System.Collections.Generic;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.AI;
 using RimLLM_Framework.Core;
 using RimLLM_Framework.Manager;
 
 namespace RimLLM_Framework.Providers
 {
     /// <summary>
-    /// Google Gemini API 供應商，經由官方 OpenAI 相容端點存取。
-    /// 對話、串流、工具呼叫、結構化輸出、思考強度（<c>reasoning_effort</c>）與模型清單
-    /// 全由基底 <see cref="OpenAIProvider"/> 經 OpenAI SDK 處理，不再使用原生 Google.GenAI 路徑。
-    /// 既有的供應商識別碼、API 金鑰與模型設定沿用不變。
-    /// 唯一例外是上下文上限：相容端點不回報，重新整理模型清單時另向原生 <c>/models</c> 讀取。
+    /// Gemini 原生文字／JSON／SSE 供應商。沿用既有設定與框架的記帳、備援及接管層。
     /// </summary>
     public class GeminiProvider : OpenAIProvider
     {
         public GeminiProvider(IRimLLMSettings settings)
-            : base(settings, ProviderIds.Gemini, "https://generativelanguage.googleapis.com/v1beta/openai", "gemini-3.5-flash")
+            : base(settings, ProviderIds.Gemini, GeminiNativeChatClient.DefaultEndpoint, "default")
         {
         }
 
-        /// <summary>
-        /// 相容端點的 /models 不回報上限，改向原生 <c>/models</c> 讀 <c>inputTokenLimit</c>。
-        /// 兩個請求彼此獨立，同時發出。上限只是附帶資訊：原生端點失敗時模型清單照常回傳。
-        /// </summary>
-        internal override async Task<ModelCatalog> FetchModelCatalogAsync()
+        public override LLMProviderCapabilities Capabilities { get; } = new LLMProviderCapabilities
         {
-            Task<Dictionary<string, int>> nativeTask = FetchNativeInputTokenLimitsAsync();
-            ModelCatalog catalog = await base.FetchModelCatalogAsync().ConfigureAwait(false);
-            Dictionary<string, int> windows = await nativeTask.ConfigureAwait(false);
-            return windows == null ? catalog : new ModelCatalog(catalog.Models, windows);
+            SupportsNativeStructuredOutput = true,
+            SupportsStreaming = true,
+            SupportsUsageMetadata = true,
+            SupportsFunctionCalling = false
+        };
+
+        public override IChatClient CreateChatClient(string model)
+        {
+            var native = new GeminiNativeChatClient(Settings.GetActiveApiKey(ProviderId), model,
+                Settings.GetEndpoint(ProviderId, DefaultEndpoint), Settings.ApiTimeout);
+            return new OpenAIChatClientAdapter(native, this, model);
         }
 
-        /// <summary>讀取原生端點的輸入上限；無法推得原生端點或請求失敗時回傳 null（失敗會記警告）。</summary>
-        private async Task<Dictionary<string, int>> FetchNativeInputTokenLimitsAsync()
+        protected override void BuildChatOptions(ChatOptions requestOptions, string model, ChatOptions options)
         {
-            // 相容根位址以 /openai 結尾，去掉即為原生 API 根位址；自訂成其他代理時無從推得，略過。
-            string root = NormalizeEndpoint(Settings.GetEndpoint(ProviderId, DefaultEndpoint));
-            if (root == null || !root.EndsWith("/openai", StringComparison.OrdinalIgnoreCase))
-            {
-                return null;
-            }
+            // 原生客戶端直接讀取 MEAI 選項，不套用 OpenAI SDK 專用的 JSON Patch。
+        }
 
-            float timeoutSeconds = Settings.ApiTimeout > 0 ? Settings.ApiTimeout : 30f;
-            var windows = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-            try
+        public override async Task<TestResult> TestConnectionAsync()
+        {
+            if (!string.IsNullOrEmpty(Settings.GetActiveApiKey(ProviderId)) && Settings.GetModelList(ProviderId).Count == 0)
             {
-                using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds)))
+                try
                 {
-                    bool isGoogle = await RimLLMEmbeddingService.ForEachGoogleNativeModelAsync(
-                        root, Settings.GetActiveApiKey(ProviderId), model => ReadInputTokenLimit(model, windows), cts.Token).ConfigureAwait(false);
-                    return isGoogle ? windows : null;
+                    List<string> models = await FetchAvailableModelsAsync().ConfigureAwait(false);
+                    if (models.Count == 0) return new TestResult { Provider = ProviderId, Success = false,
+                        ErrorCode = LLMError.ModelNotFound, ErrorMessage = "The Gemini endpoint exposes no text-generation models." };
+                    Settings.SetModelList(ProviderId, models);
+                }
+                catch (RimLLMException ex)
+                {
+                    return new TestResult { Provider = ProviderId, Success = false, ErrorCode = ex.Error, ErrorMessage = ex.Message };
+                }
+                catch (Exception ex)
+                {
+                    return new TestResult { Provider = ProviderId, Success = false,
+                        ErrorCode = LLMError.NetworkError, ErrorMessage = "Could not fetch Gemini models: " + ex.Message };
                 }
             }
-            catch (Exception ex)
+            return await base.TestConnectionAsync().ConfigureAwait(false);
+        }
+
+        internal override async Task<ModelCatalog> FetchModelCatalogAsync()
+        {
+            string root = GeminiNativeChatClient.NormalizeEndpoint(Settings.GetEndpoint(ProviderId, DefaultEndpoint));
+            var models = new List<string>();
+            var windows = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(Settings.ApiTimeout > 0 ? Settings.ApiTimeout : 30f)))
             {
-                RimLLMLog.Warning($"[RimLLM] Could not read Gemini context window sizes from the native models endpoint: {RimLLMLog.SanitizeForLog(ex.Message, 200)}");
-                return null;
+                bool valid = await RimLLMEmbeddingService.ForEachGoogleNativeModelAsync(root,
+                    Settings.GetActiveApiKey(ProviderId), model =>
+                    {
+                        if (model.TryGetProperty("supportedGenerationMethods", out JsonElement methods))
+                        {
+                            bool chat = false;
+                            foreach (JsonElement method in methods.EnumerateArray())
+                                if (method.GetString() == "generateContent") chat = true;
+                            if (!chat) return;
+                        }
+                        if (!model.TryGetProperty("name", out JsonElement nameElement)) return;
+                        string name = nameElement.GetString();
+                        if (string.IsNullOrEmpty(name)) return;
+                        if (name.StartsWith("models/", StringComparison.Ordinal)) name = name.Substring(7);
+                        if (!models.Contains(name)) models.Add(name);
+                        ReadInputTokenLimit(model, windows);
+                    }, cts.Token).ConfigureAwait(false);
+                if (!valid) throw new RimLLMException(LLMError.InvalidResponse, "Gemini model list is missing the models array.");
             }
+            return new ModelCatalog(models, windows);
         }
 
         /// <summary>

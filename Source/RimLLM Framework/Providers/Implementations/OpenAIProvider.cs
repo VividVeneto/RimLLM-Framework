@@ -455,7 +455,8 @@ namespace RimLLM_Framework.Providers
                 System.Threading.CancellationToken cancellationToken = default)
             {
                 return new OpenAiStreamEnumerable(
-                    (opts, ct) => base.GetStreamingResponseAsync(messages, opts, ct),
+                    // Keep the method token; the enumerable separately forwards the enumeration token.
+                    (opts, ct) => base.GetStreamingResponseAsync(messages, opts, cancellationToken),
                     options,
                     _provider,
                     _model);

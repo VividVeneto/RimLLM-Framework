@@ -63,7 +63,7 @@ namespace RimLLM_Framework
         /// </summary>
         public static bool HasCustomEndpoint(string providerId)
         {
-            return providerId == OpenAICompatible || providerId == Player2;
+            return providerId == OpenAICompatible || providerId == Player2 || providerId == Gemini;
         }
 
         /// <summary>
